@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request
 from aiogram.types import Update
-from bot import bot, dp
+from telegram_bot import bot, dp
 from dotenv import load_dotenv
 
 load_dotenv()
