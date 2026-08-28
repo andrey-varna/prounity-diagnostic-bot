@@ -1,7 +1,13 @@
+import os
+from services.stripe_service import create_checkout_session
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (
+    CallbackQuery, Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from services.formula import calculate_result
 from bot.states import DiagnosticForm
 from bot.keyboards import (
@@ -13,7 +19,6 @@ from bot.keyboards import (
 from services.schedule import get_available_dates, TIME_SLOTS
 
 router = Router()
-
 
 @router.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
@@ -364,11 +369,48 @@ async def process_l(
                         callback: CallbackQuery,
                         state: FSMContext
                 ):
-                    await callback.answer()
-
-                    await callback.message.answer(
-                        "Система оплаты будет подключена на следующем этапе.\n\n"
-                        "Сейчас мы проверяем полную логику воронки."
+                    await callback.answer(
+                        "Создаём страницу оплаты..."
                     )
+
+                    base_url = os.getenv("BASE_URL")
+
+                    if not base_url:
+                        await callback.message.answer(
+                            "Ошибка настройки системы оплаты."
+                        )
+                        return
+
+                    try:
+                        session = await create_checkout_session(
+                            success_url=f"{base_url}/payment/success",
+                            cancel_url=f"{base_url}/payment/cancel",
+                        )
+
+                        keyboard = InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(
+                                        text="💳 Перейти к оплате 10 €",
+                                        url=session.url
+                                    )
+                                ]
+                            ]
+                        )
+
+                        await callback.message.answer(
+                            "Ваша консультация предварительно выбрана.\n\n"
+                            "Для подтверждения бронирования оплатите 10 € "
+                            "через защищённую страницу Stripe.",
+                            reply_markup=keyboard
+                        )
+
+                    except Exception as e:
+                        print(f"Stripe error: {e}")
+
+                        await callback.message.answer(
+                            "Не удалось создать страницу оплаты. "
+                            "Попробуйте позже."
+                        )
             # Пока оставляем данные в памяти.
             # Очистим состояние позже, после оплаты/записи.
