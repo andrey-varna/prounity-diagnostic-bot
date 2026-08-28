@@ -85,3 +85,18 @@ async def telegram_webhook(
     await dp.feed_update(bot, update)
 
     return {"ok": True}
+
+@app.get("/payment/success")
+async def payment_success():
+    return {
+        "status": "success",
+        "message": "Оплата успешно завершена. Подтверждаем вашу запись."
+    }
+
+
+@app.get("/payment/cancel")
+async def payment_cancel():
+    return {
+        "status": "cancelled",
+        "message": "Оплата не была завершена. Вы можете вернуться в Telegram и попробовать снова."
+    }
