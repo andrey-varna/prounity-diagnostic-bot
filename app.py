@@ -4,7 +4,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from aiogram.types import Update
 from telegram_bot import bot, dp
 from dotenv import load_dotenv
-
+import stripe
 load_dotenv()
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -100,3 +100,47 @@ async def payment_cancel():
         "status": "cancelled",
         "message": "Оплата не была завершена. Вы можете вернуться в Telegram и попробовать снова."
     }
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+
+    sig_header = request.headers.get("stripe-signature")
+
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+    if not webhook_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Stripe webhook secret is not configured"
+        )
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload=payload,
+            sig_header=sig_header,
+            secret=webhook_secret
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid payload"
+        )
+
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid signature"
+        )
+
+    if event["type"] == "checkout.session.completed":
+
+        session = event["data"]["object"]
+
+        print(
+            "STRIPE PAYMENT SUCCESS:",
+            session["id"]
+        )
+
+    return {"status": "ok"}
