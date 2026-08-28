@@ -4,8 +4,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from services.formula import calculate_result
 from bot.states import DiagnosticForm
-from bot.keyboards import rating_keyboard
-
+from bot.keyboards import (
+    rating_keyboard,
+    dates_keyboard,
+    time_keyboard,
+    payment_keyboard
+)
+from services.schedule import get_available_dates, TIME_SLOTS
 
 router = Router()
 
@@ -260,12 +265,110 @@ async def process_l(
             )
 
             await message.answer(
-                "Спасибо, диагностика завершена.\n\n"
-                f"Ваш общий результат R: {result['R']}\n\n"
-                "Для получения персонального разбора результата "
-                "и конкретных рекомендаций по вашей ситуации "
-                "вы сможете записаться на консультацию."
+                "Спасибо. Диагностика завершена.\n\n"
+                "Ваши ответы обработаны по авторской методике PRO Unity Consult.\n\n"
+                "На персональной консультации вы получите:\n"
+                "• разбор вашего результата;\n"
+                "• анализ вашей конкретной ситуации;\n"
+                "• рекомендации по улучшению интересующего вас направления.\n\n"
+                "Продолжительность первой консультации — 60 минут.\n"
+                "Стоимость бронирования — 10 €.\n\n"
+                "Выберите удобную дату:"
+            )
+            available_dates = get_available_dates()
+
+            await state.set_state(DiagnosticForm.consultation_date)
+
+            await message.answer(
+                "Ближайшие доступные рабочие дни:",
+                reply_markup=dates_keyboard(available_dates)
             )
 
+            @router.callback_query(
+                DiagnosticForm.consultation_date,
+                F.data.startswith("date:")
+            )
+            async def process_consultation_date(
+                    callback: CallbackQuery,
+                    state: FSMContext
+            ):
+                selected_date = callback.data.split(":", 1)[1]
+
+                await state.update_data(
+                    consultation_date=selected_date
+                )
+
+                await callback.answer()
+
+                await callback.message.edit_text(
+                    f"Вы выбрали дату: {selected_date}"
+                )
+
+                await state.set_state(
+                    DiagnosticForm.consultation_time
+                )
+
+                await callback.message.answer(
+                    "Теперь выберите удобное время:",
+                    reply_markup=time_keyboard(TIME_SLOTS)
+                )
+
+            @router.callback_query(
+                DiagnosticForm.consultation_time,
+                F.data.startswith("time:")
+            )
+            async def process_consultation_time(
+                    callback: CallbackQuery,
+                    state: FSMContext
+            ):
+                selected_time = callback.data.split(":", 1)[1]
+
+                await state.update_data(
+                    consultation_time=selected_time
+                )
+
+                await callback.answer()
+
+                data = await state.get_data()
+
+                selected_date = data.get(
+                    "consultation_date"
+                )
+
+                await callback.message.edit_text(
+                    f"Вы выбрали время: {selected_time}"
+                )
+
+                await callback.message.answer(
+                    "Ваше предварительное время консультации:\n\n"
+                    f"📅 Дата: {selected_date}\n"
+                    f"🕒 Время: {selected_time}–"
+                    f"{int(selected_time[:2]) + 1:02d}:00\n\n"
+                    "Для окончательного бронирования необходимо "
+                    "оплатить 10 €.\n\n"
+                    "После успешной оплаты выбранное время будет "
+                    "закреплено за вами."
+                )
+                await state.set_state(DiagnosticForm.payment)
+
+                await callback.message.answer(
+                    "Нажмите кнопку ниже для перехода к оплате:",
+                    reply_markup=payment_keyboard()
+                )
+
+                @router.callback_query(
+                    DiagnosticForm.payment,
+                    F.data == "payment:start"
+                )
+                async def process_payment_start(
+                        callback: CallbackQuery,
+                        state: FSMContext
+                ):
+                    await callback.answer()
+
+                    await callback.message.answer(
+                        "Система оплаты будет подключена на следующем этапе.\n\n"
+                        "Сейчас мы проверяем полную логику воронки."
+                    )
             # Пока оставляем данные в памяти.
             # Очистим состояние позже, после оплаты/записи.
