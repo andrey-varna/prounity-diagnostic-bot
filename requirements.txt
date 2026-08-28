@@ -2,3 +2,4 @@ aiogram==3.30.0
 fastapi
 uvicorn[standard]
 python-dotenv
+stripe==15.6.0
