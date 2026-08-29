@@ -3,21 +3,16 @@ from services.stripe_service import create_checkout_session
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery, Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
+from aiogram.types import (CallbackQuery, Message, InlineKeyboardMarkup,
+    InlineKeyboardButton)
 from services.formula import calculate_result
 from bot.states import DiagnosticForm
-from bot.keyboards import (
-    rating_keyboard,
-    dates_keyboard,
-    time_keyboard,
-    payment_keyboard
-)
+from bot.keyboards import (rating_keyboard, dates_keyboard, time_keyboard,
+    payment_keyboard )
 from services.schedule import get_available_dates, TIME_SLOTS
-
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models import Consultation
 router = Router()
 
 @router.message(CommandStart())
@@ -382,10 +377,73 @@ async def process_l(
                         return
 
                     try:
+                        data = await state.get_data()
+
+                        telegram_id = callback.from_user.id
+
+                        consultation_date = data.get("consultation_date")
+                        consultation_time = data.get("consultation_time")
+
+                        if not consultation_date or not consultation_time:
+                            await callback.message.answer(
+                                "Не удалось определить дату или время консультации. "
+                                "Пожалуйста, начните бронирование заново."
+                            )
+                            return
+
+                        # Проверяем, не создавал ли пользователь уже
+                        # предварительную запись на этот слот
+                        async with AsyncSessionLocal() as db:
+                            result = await db.execute(
+                                select(Consultation).where(
+                                    Consultation.telegram_id == telegram_id,
+                                    Consultation.consultation_date == consultation_date,
+                                    Consultation.consultation_time == consultation_time,
+                                    Consultation.payment_status == "pending"
+                                )
+                            )
+
+                            consultation = result.scalar_one_or_none()
+
+                            # Если записи ещё нет — создаём
+                            if not consultation:
+                                consultation = Consultation(
+                                    telegram_id=telegram_id,
+                                    consultation_date=consultation_date,
+                                    consultation_time=consultation_time,
+                                    payment_status="pending",
+                                    is_processed=False
+                                )
+
+                                db.add(consultation)
+                                await db.commit()
+                                await db.refresh(consultation)
+
+                        # Создаём Stripe Checkout Session
                         session = await create_checkout_session(
                             success_url=f"{base_url}/payment/success",
                             cancel_url=f"{base_url}/payment/cancel",
+                            telegram_id=telegram_id,
+                            consultation_date=consultation_date,
+                            consultation_time=consultation_time,
                         )
+
+                        # Сохраняем Stripe Session ID
+                        async with AsyncSessionLocal() as db:
+                            result = await db.execute(
+                                select(Consultation).where(
+                                    Consultation.telegram_id == telegram_id,
+                                    Consultation.consultation_date == consultation_date,
+                                    Consultation.consultation_time == consultation_time,
+                                    Consultation.payment_status == "pending"
+                                )
+                            )
+
+                            consultation = result.scalar_one_or_none()
+
+                            if consultation:
+                                consultation.stripe_session_id = session.id
+                                await db.commit()
 
                         keyboard = InlineKeyboardMarkup(
                             inline_keyboard=[
@@ -406,7 +464,7 @@ async def process_l(
                         )
 
                     except Exception as e:
-                        print(f"Stripe error: {e}")
+                        print(f"Payment error: {e}")
 
                         await callback.message.answer(
                             "Не удалось создать страницу оплаты. "
