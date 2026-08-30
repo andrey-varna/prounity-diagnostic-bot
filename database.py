@@ -1,5 +1,4 @@
 import os
-
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -8,14 +7,11 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-
 load_dotenv()
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
-
 
 # Для asyncpg SQLAlchemy использует такой формат URL
 DATABASE_URL = DATABASE_URL.replace(
@@ -23,7 +19,6 @@ DATABASE_URL = DATABASE_URL.replace(
     "postgresql+asyncpg://",
     1
 )
-
 
 engine = create_async_engine(
     DATABASE_URL,
