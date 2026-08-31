@@ -304,13 +304,51 @@ async def process_consultation_date(
     await callback.message.edit_text(
         f"Вы выбрали дату: {selected_date}"
     )
+    # Получаем занятые слоты на выбранную дату
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(
+                Consultation.consultation_time
+            ).where(
+                Consultation.consultation_date
+                == selected_date,
+                Consultation.payment_status.in_(
+                    ["pending", "paid"]
+                )
+            )
+        )
+        occupied_times = set(
+            result.scalars().all()
+        )
+    # Формируем список свободных слотов
+    free_times = [
+        time
+        for time in TIME_SLOTS
+        if time not in occupied_times
+    ]
+    # Если на дату мест больше нет
+    if not free_times:
+        await callback.message.answer(
+            "😔 На выбранную дату свободных мест "
+            "уже нет.\n\n"
+            "Пожалуйста, выберите другую дату."
+        )
+        available_dates = get_available_dates()
+        await callback.message.answer(
+            "Ближайшие доступные рабочие дни:",
+            reply_markup=dates_keyboard(
+                available_dates
+            )
+        )
+        return
+    # Показываем только свободное время
     await state.set_state(
         DiagnosticForm.consultation_time
     )
     await callback.message.answer(
-        "Теперь выберите удобное время:",
+        "Теперь выберите удобное свободное время:",
         reply_markup=time_keyboard(
-            TIME_SLOTS
+            free_times
         )
     )
 # ============================================================
@@ -368,7 +406,7 @@ async def process_payment_start(
     state: FSMContext
 ):
     await callback.answer(
-        "Создаём страницу оплаты..."
+        "Проверяем доступность времени..."
     )
     base_url = os.getenv("BASE_URL")
     if not base_url:
@@ -392,13 +430,15 @@ async def process_payment_start(
         n = data.get("n")
         f = data.get("f")
         h = data.get("h")
-
         diagnostic_result = data.get(
             "diagnostic_result"
         )
         desired_result = data.get(
             "desired_result"
         )
+        # ====================================================
+        # ПРОВЕРЯЕМ ДАТУ И ВРЕМЯ
+        # ====================================================
         if (
             not consultation_date
             or not consultation_time
@@ -410,9 +450,35 @@ async def process_payment_start(
             )
             return
         # ====================================================
-        # СОЗДАЁМ ИЛИ ОБНОВЛЯЕМ ЗАПИСЬ В БАЗЕ
+        # ПРОВЕРЯЕМ, НЕ ЗАНЯТ ЛИ СЛОТ ДРУГИМ КЛИЕНТОМ
         # ====================================================
         async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Consultation).where(
+                    Consultation.consultation_date
+                    == consultation_date,
+                    Consultation.consultation_time
+                    == consultation_time,
+                    Consultation.payment_status.in_(
+                        ["pending", "paid"]
+                    ),
+                    Consultation.telegram_id
+                    != telegram_id
+                )
+            )
+            occupied_consultation = (
+                result.scalar_one_or_none()
+            )
+            if occupied_consultation:
+                await callback.message.answer(
+                    "😔 К сожалению, это время только что "
+                    "было выбрано другим клиентом.\n\n"
+                    "Пожалуйста, начните выбор времени заново."
+                )
+                return
+            # =================================================
+            # ИЩЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ ЭТОГО КЛИЕНТА
+            # =================================================
             result = await db.execute(
                 select(Consultation).where(
                     Consultation.telegram_id
@@ -425,10 +491,12 @@ async def process_payment_start(
                     == "pending"
                 )
             )
-            consultation = result.scalar_one_or_none()
-            # ------------------------------------------------
-            # СОЗДАЁМ НОВУЮ ЗАПИСЬ
-            # ------------------------------------------------
+            consultation = (
+                result.scalar_one_or_none()
+            )
+            # ================================================
+            # СОЗДАЁМ НОВУЮ PENDING-ЗАПИСЬ
+            # ================================================
             if not consultation:
                 consultation = Consultation(
                     telegram_id=telegram_id,
@@ -451,9 +519,9 @@ async def process_payment_start(
                 await db.refresh(
                     consultation
                 )
-            # ------------------------------------------------
+            # ================================================
             # ОБНОВЛЯЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ
-            # ------------------------------------------------
+            # ================================================
             else:
                 consultation.goal = goal
                 consultation.s = s
@@ -472,6 +540,9 @@ async def process_payment_start(
         # ====================================================
         # СОЗДАЁМ STRIPE CHECKOUT SESSION
         # ====================================================
+        await callback.answer(
+            "Создаём страницу оплаты..."
+        )
         session = await create_checkout_session(
             success_url=(
                 f"{base_url}/payment/success"
@@ -523,9 +594,11 @@ async def process_payment_start(
             ]
         )
         await callback.message.answer(
-            "Ваша консультация предварительно выбрана.\n\n"
-            "Для подтверждения бронирования оплатите 10 € "
-            "через защищённую страницу Stripe.",
+            "Ваша консультация предварительно "
+            "зарезервирована.\n\n"
+            "Для окончательного подтверждения "
+            "оплатите 10 € через защищённую "
+            "страницу Stripe.",
             reply_markup=keyboard
         )
     except Exception as e:
