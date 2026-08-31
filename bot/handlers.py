@@ -33,8 +33,7 @@ async def start_handler(
         "🎯 Сначала расскажите:\n\n"
         "Какова ваша главная цель или задача сейчас?"
     )
-    # Используем существующее состояние problem
-    # для хранения главной цели
+
     await state.set_state(DiagnosticForm.problem)
 # ============================================================
 # GOAL
@@ -53,7 +52,6 @@ async def process_goal(
     await state.update_data(
         goal=message.text
     )
-
     await state.set_state(DiagnosticForm.s)
     await message.answer(
         "Спасибо.\n\n"
@@ -81,7 +79,6 @@ async def process_s(
             "Выберите значение от 0 до 10"
         )
         return
-
     await state.update_data(s=value)
     await callback.answer()
     await callback.message.edit_text(
@@ -111,7 +108,6 @@ async def process_o(
             "Выберите значение от 0 до 10"
         )
         return
-
     await state.update_data(o=value)
     await callback.answer()
     await callback.message.edit_text(
@@ -135,13 +131,11 @@ async def process_l(
     state: FSMContext
 ):
     value = int(callback.data.split(":")[1])
-
     if not 0 <= value <= 10:
         await callback.answer(
             "Выберите значение от 0 до 10"
         )
         return
-
     await state.update_data(l=value)
     await callback.answer()
     await callback.message.edit_text(
@@ -165,13 +159,11 @@ async def process_n(
     state: FSMContext
 ):
     value = int(callback.data.split(":")[1])
-
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-
     await state.update_data(n=value)
     await callback.answer()
     await callback.message.edit_text(
@@ -195,13 +187,11 @@ async def process_f(
     state: FSMContext
 ):
     value = int(callback.data.split(":")[1])
-
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-
     await state.update_data(f=value)
     await callback.answer()
     await callback.message.edit_text(
@@ -225,19 +215,16 @@ async def process_h(
     state: FSMContext
 ):
     value = int(callback.data.split(":")[1])
-
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-
     await state.update_data(h=value)
     await callback.answer()
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    # Переходим к последнему текстовому вопросу
     await state.set_state(DiagnosticForm.desired_change)
     await callback.message.answer(
         "Спасибо.\n\n"
@@ -257,7 +244,6 @@ async def process_desired_result(
             "Пожалуйста, опишите желаемый результат текстом."
         )
         return
-
     await state.update_data(
         desired_result=message.text
     )
@@ -274,7 +260,6 @@ async def process_desired_result(
         diagnostic_result=result
     )
     available_dates = get_available_dates()
-
     await state.set_state(
         DiagnosticForm.consultation_date
     )
@@ -291,7 +276,6 @@ async def process_desired_result(
         "Стоимость бронирования — 10 €.\n\n"
         "Выберите удобную дату:"
     )
-
     await message.answer(
         "Ближайшие доступные рабочие дни:",
         reply_markup=dates_keyboard(
@@ -313,11 +297,9 @@ async def process_consultation_date(
         ":",
         1
     )[1]
-
     await state.update_data(
         consultation_date=selected_date
     )
-
     await callback.answer()
     await callback.message.edit_text(
         f"Вы выбрали дату: {selected_date}"
@@ -346,7 +328,6 @@ async def process_consultation_time(
         ":",
         1
     )[1]
-
     await state.update_data(
         consultation_time=selected_time
     )
@@ -405,6 +386,16 @@ async def process_payment_start(
             "consultation_time"
         )
         goal = data.get("goal")
+        s = data.get("s")
+        o = data.get("o")
+        l = data.get("l")
+        n = data.get("n")
+        f = data.get("f")
+        h = data.get("h")
+
+        diagnostic_result = data.get(
+            "diagnostic_result"
+        )
         desired_result = data.get(
             "desired_result"
         )
@@ -419,7 +410,7 @@ async def process_payment_start(
             )
             return
         # ====================================================
-        # СОЗДАЁМ ПРЕДВАРИТЕЛЬНУЮ ЗАПИСЬ В БАЗЕ
+        # СОЗДАЁМ ИЛИ ОБНОВЛЯЕМ ЗАПИСЬ В БАЗЕ
         # ====================================================
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -434,13 +425,21 @@ async def process_payment_start(
                     == "pending"
                 )
             )
-
             consultation = result.scalar_one_or_none()
-            # Если записи ещё нет — создаём
+            # ------------------------------------------------
+            # СОЗДАЁМ НОВУЮ ЗАПИСЬ
+            # ------------------------------------------------
             if not consultation:
                 consultation = Consultation(
                     telegram_id=telegram_id,
                     goal=goal,
+                    s=s,
+                    o=o,
+                    l=l,
+                    n=n,
+                    f=f,
+                    h=h,
+                    diagnostic_result=diagnostic_result,
                     desired_result=desired_result,
                     consultation_date=consultation_date,
                     consultation_time=consultation_time,
@@ -452,10 +451,20 @@ async def process_payment_start(
                 await db.refresh(
                     consultation
                 )
-            # Если запись уже есть —
-            # обновляем текстовые ответы
+            # ------------------------------------------------
+            # ОБНОВЛЯЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ
+            # ------------------------------------------------
             else:
                 consultation.goal = goal
+                consultation.s = s
+                consultation.o = o
+                consultation.l = l
+                consultation.n = n
+                consultation.f = f
+                consultation.h = h
+                consultation.diagnostic_result = (
+                    diagnostic_result
+                )
                 consultation.desired_result = (
                     desired_result
                 )

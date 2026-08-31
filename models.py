@@ -1,12 +1,19 @@
 from datetime import datetime
+
 from sqlalchemy import (
-    BigInteger, Boolean,
-    DateTime, Integer,
-    String,Text,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    Float,
 )
 
 from sqlalchemy.orm import Mapped, mapped_column
+
 from database import Base
+
 
 class Consultation(Base):
     __tablename__ = "consultations"
@@ -24,6 +31,49 @@ class Consultation(Base):
 
     # Главная цель клиента перед началом опроса
     goal: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    # Оценки по формуле
+    s: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    o: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    l: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    n: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    f: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    h: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    # Рассчитанный результат диагностики
+    diagnostic_result: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
+    # Желаемый результат клиента
+    desired_result: Mapped[str | None] = mapped_column(
         Text,
         nullable=True
     )
@@ -54,12 +104,6 @@ class Consultation(Base):
         Boolean,
         default=False,
         nullable=False
-    )
-
-    # Желаемый результат после прохождения опроса
-    desired_result: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
