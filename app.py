@@ -128,7 +128,11 @@ async def stripe_webhook(request: Request):
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         stripe_session_id = session.id
-        metadata = session.metadata or {}
+        metadata = (
+            session.metadata.to_dict()
+            if session.metadata
+            else {}
+        )
         telegram_id = metadata.get("telegram_id")
         consultation_date = metadata.get("consultation_date")
         consultation_time = metadata.get("consultation_time")
