@@ -127,9 +127,11 @@ async def stripe_webhook(request: Request):
         )
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        stripe_session_id = session["id"]
-        metadata = session.get("metadata", {})
+        stripe_session_id = session.id
+        metadata = session.metadata or {}
         telegram_id = metadata.get("telegram_id")
+        consultation_date = metadata.get("consultation_date")
+        consultation_time = metadata.get("consultation_time")
         print("=" * 50)
         print("STRIPE PAYMENT RECEIVED")
         print(f"Session ID: {stripe_session_id}")
