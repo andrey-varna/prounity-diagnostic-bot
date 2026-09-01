@@ -405,6 +405,12 @@ async def process_payment_start(
     callback: CallbackQuery,
     state: FSMContext
 ):
+    print("=" * 50)
+    print("PAYMENT BUTTON CLICKED")
+    print(f"User: {callback.from_user.id}")
+    print(f"Callback data: {callback.data}")
+    print("=" * 50)
+
     await callback.answer(
         "Проверяем доступность времени..."
     )
