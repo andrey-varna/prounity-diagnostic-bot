@@ -414,38 +414,73 @@ async def process_payment_start(
     await callback.answer(
         "Проверяем доступность времени..."
     )
+
     base_url = os.getenv("BASE_URL")
+
     if not base_url:
         await callback.message.answer(
             "Ошибка настройки системы оплаты."
         )
         return
+
     try:
+        # ====================================================
+        # ПОЛУЧАЕМ ДАННЫЕ ИЗ FSM
+        # ====================================================
         data = await state.get_data()
+
         telegram_id = callback.from_user.id
+
         consultation_date = data.get(
             "consultation_date"
         )
+
         consultation_time = data.get(
             "consultation_time"
         )
+
         goal = data.get("goal")
+
         s = data.get("s")
         o = data.get("o")
         l = data.get("l")
         n = data.get("n")
         f = data.get("f")
         h = data.get("h")
+
         result_data = data.get(
             "diagnostic_result"
         )
+
+        # calculate_result возвращает словарь,
+        # в базе сохраняем только итоговое значение R
         if isinstance(result_data, dict):
             diagnostic_result = result_data.get("R")
         else:
             diagnostic_result = result_data
+
         desired_result = data.get(
             "desired_result"
         )
+
+        print("=" * 50)
+        print("PAYMENT DATA")
+        print(f"Telegram ID: {telegram_id}")
+        print(f"Date: {consultation_date}")
+        print(f"Time: {consultation_time}")
+        print(f"Goal: {goal}")
+        print(f"S={s}, O={o}, L={l}")
+        print(f"N={n}, F={f}, H={h}")
+        print(
+            f"Diagnostic result: "
+            f"{diagnostic_result}"
+        )
+        print(
+            f"Desired result: "
+            f"{desired_result}"
+        )
+        print("=" * 50)
+
         # ====================================================
         # ПРОВЕРЯЕМ ДАТУ И ВРЕМЯ
         # ====================================================
@@ -459,100 +494,181 @@ async def process_payment_start(
                 "Пожалуйста, начните бронирование заново."
             )
             return
+
         # ====================================================
-        # ПРОВЕРЯЕМ, НЕ ЗАНЯТ ЛИ СЛОТ ДРУГИМ КЛИЕНТОМ
+        # СОЗДАЁМ ИЛИ ОБНОВЛЯЕМ ЗАПИСЬ
         # ====================================================
         async with AsyncSessionLocal() as db:
+
+            # ------------------------------------------------
+            # ПРОВЕРЯЕМ, НЕ ЗАНЯТ ЛИ СЛОТ ДРУГИМ КЛИЕНТОМ
+            # ------------------------------------------------
             result = await db.execute(
                 select(Consultation).where(
                     Consultation.consultation_date
                     == consultation_date,
+
                     Consultation.consultation_time
                     == consultation_time,
+
                     Consultation.payment_status.in_(
                         ["pending", "paid"]
                     ),
+
                     Consultation.telegram_id
                     != telegram_id
                 )
             )
+
             occupied_consultation = (
                 result.scalar_one_or_none()
             )
+
             if occupied_consultation:
+
+                print(
+                    "SLOT OCCUPIED BY CONSULTATION ID: "
+                    f"{occupied_consultation.id}"
+                )
+
                 await callback.message.answer(
                     "😔 К сожалению, это время только что "
                     "было выбрано другим клиентом.\n\n"
                     "Пожалуйста, начните выбор времени заново."
                 )
+
                 return
-            # =================================================
-            # ИЩЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ ЭТОГО КЛИЕНТА
-            # =================================================
+
+            # ------------------------------------------------
+            # ИЩЕМ СУЩЕСТВУЮЩУЮ PENDING-ЗАПИСЬ
+            # ЭТОГО ЖЕ КЛИЕНТА
+            # ------------------------------------------------
             result = await db.execute(
                 select(Consultation).where(
                     Consultation.telegram_id
                     == telegram_id,
+
                     Consultation.consultation_date
                     == consultation_date,
+
                     Consultation.consultation_time
                     == consultation_time,
+
                     Consultation.payment_status
                     == "pending"
                 )
             )
+
             consultation = (
                 result.scalar_one_or_none()
             )
-            # ================================================
-            # СОЗДАЁМ НОВУЮ PENDING-ЗАПИСЬ
-            # ================================================
+
+            # ------------------------------------------------
+            # СОЗДАЁМ НОВУЮ ЗАПИСЬ
+            # ------------------------------------------------
             if not consultation:
+
+                print(
+                    "CREATING NEW CONSULTATION..."
+                )
+
                 consultation = Consultation(
                     telegram_id=telegram_id,
                     goal=goal,
+
                     s=s,
                     o=o,
                     l=l,
+
                     n=n,
                     f=f,
                     h=h,
+
                     diagnostic_result=diagnostic_result,
+
                     desired_result=desired_result,
+
                     consultation_date=consultation_date,
                     consultation_time=consultation_time,
+
                     payment_status="pending",
                     is_processed=False
                 )
+
                 db.add(consultation)
+
                 await db.commit()
+
                 await db.refresh(
                     consultation
                 )
-            # ================================================
+
+                print("=" * 50)
+                print(
+                    "CONSULTATION CREATED SUCCESSFULLY"
+                )
+                print(
+                    f"Consultation ID: "
+                    f"{consultation.id}"
+                )
+                print("=" * 50)
+
+            # ------------------------------------------------
             # ОБНОВЛЯЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ
-            # ================================================
+            # ------------------------------------------------
             else:
+
+                print("=" * 50)
+                print(
+                    "UPDATING EXISTING CONSULTATION"
+                )
+                print(
+                    f"Consultation ID: "
+                    f"{consultation.id}"
+                )
+                print("=" * 50)
+
                 consultation.goal = goal
+
                 consultation.s = s
                 consultation.o = o
                 consultation.l = l
+
                 consultation.n = n
                 consultation.f = f
                 consultation.h = h
+
                 consultation.diagnostic_result = (
                     diagnostic_result
                 )
+
                 consultation.desired_result = (
                     desired_result
                 )
+
                 await db.commit()
+
+                await db.refresh(
+                    consultation
+                )
+
+                print(
+                    "CONSULTATION UPDATED SUCCESSFULLY"
+                )
+
+            # Сохраняем ID записи
+            consultation_id = consultation.id
+
         # ====================================================
         # СОЗДАЁМ STRIPE CHECKOUT SESSION
         # ====================================================
-        await callback.answer(
-            "Создаём страницу оплаты..."
+        print("=" * 50)
+        print("CREATING STRIPE SESSION")
+        print(
+            f"Consultation ID: {consultation_id}"
         )
+        print("=" * 50)
+
         session = await create_checkout_session(
             success_url=(
                 f"{base_url}/payment/success"
@@ -564,30 +680,57 @@ async def process_payment_start(
             consultation_date=consultation_date,
             consultation_time=consultation_time,
         )
+
+        print(
+            f"STRIPE SESSION CREATED: "
+            f"{session.id}"
+        )
+
         # ====================================================
         # СОХРАНЯЕМ STRIPE SESSION ID
         # ====================================================
         async with AsyncSessionLocal() as db:
+
             result = await db.execute(
                 select(Consultation).where(
-                    Consultation.telegram_id
-                    == telegram_id,
-                    Consultation.consultation_date
-                    == consultation_date,
-                    Consultation.consultation_time
-                    == consultation_time,
-                    Consultation.payment_status
-                    == "pending"
+                    Consultation.id
+                    == consultation_id
                 )
             )
+
             consultation = (
                 result.scalar_one_or_none()
             )
+
             if consultation:
+
                 consultation.stripe_session_id = (
                     session.id
                 )
+
                 await db.commit()
+
+                print("=" * 50)
+                print(
+                    "STRIPE SESSION ID SAVED"
+                )
+                print(
+                    f"Consultation ID: "
+                    f"{consultation.id}"
+                )
+                print(
+                    f"Stripe Session: "
+                    f"{session.id}"
+                )
+                print("=" * 50)
+
+            else:
+
+                print(
+                    "ERROR: CONSULTATION NOT FOUND "
+                    "WHEN SAVING STRIPE SESSION"
+                )
+
         # ====================================================
         # КНОПКА ОПЛАТЫ
         # ====================================================
@@ -603,6 +746,7 @@ async def process_payment_start(
                 ]
             ]
         )
+
         await callback.message.answer(
             "Ваша консультация предварительно "
             "зарезервирована.\n\n"
@@ -611,10 +755,15 @@ async def process_payment_start(
             "страницу Stripe.",
             reply_markup=keyboard
         )
+
     except Exception as e:
-        print(
-            f"Payment error: {e}"
-        )
+
+        print("=" * 50)
+        print("PAYMENT ERROR")
+        print(type(e).__name__)
+        print(str(e))
+        print("=" * 50)
+
         await callback.message.answer(
             "Не удалось создать страницу оплаты.\n\n"
             "Попробуйте позже."
