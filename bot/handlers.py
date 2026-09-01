@@ -436,9 +436,13 @@ async def process_payment_start(
         n = data.get("n")
         f = data.get("f")
         h = data.get("h")
-        diagnostic_result = data.get(
+        result_data = data.get(
             "diagnostic_result"
         )
+        if isinstance(result_data, dict):
+            diagnostic_result = result_data.get("R")
+        else:
+            diagnostic_result = result_data
         desired_result = data.get(
             "desired_result"
         )
