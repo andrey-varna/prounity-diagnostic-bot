@@ -5,6 +5,7 @@ from bot.handlers import router
 
 load_dotenv()
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
+print(f"ADMIN_TELEGRAM_ID loaded: {ADMIN_TELEGRAM_ID}")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 
