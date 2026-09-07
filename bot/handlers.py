@@ -837,7 +837,7 @@ async def process_payment_start(
                 [
                     InlineKeyboardButton(
                         text=(
-                            "💳 Перейти к оплате 10 €"
+                            "Подтвердить выбранное время"
                         ),
                         url=session.url
                     )
