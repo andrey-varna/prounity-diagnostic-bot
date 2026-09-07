@@ -50,3 +50,15 @@ def calculate_result(
         "negative": negative,
         "R": result
     }
+
+def interpret_result(result: int) -> str:
+    if result <= 0:
+        return "Работа с убеждениями, страхами и привычками"
+    elif result <= 100:
+        return "Усиль энергию, окружение или инструменты"
+    elif result <= 200:
+        return "Систематизируй действия, укрепляй опоры и навыки"
+    elif result <= 400:
+        return "Сохраняй баланс, поддерживай энергию и окружение"
+    else:
+        return "Масштабируй проекты, выходи на новый уровень"

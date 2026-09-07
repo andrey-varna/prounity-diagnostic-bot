@@ -2,11 +2,12 @@ import os
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (CallbackQuery, Message,
-    InlineKeyboardMarkup, InlineKeyboardButton,)
+from aiogram.types import (CallbackQuery,
+    InlineKeyboardButton, InlineKeyboardMarkup,
+    Message,)
 from sqlalchemy import select
 from services.stripe_service import create_checkout_session
-from services.formula import calculate_result
+from services.formula import calculate_result, interpret_result
 from services.schedule import get_available_dates, TIME_SLOTS
 from bot.states import DiagnosticForm
 from bot.keyboards import (rating_keyboard, dates_keyboard,
@@ -262,10 +263,13 @@ async def process_desired_result(
             "Пожалуйста, опишите желаемый результат текстом."
         )
         return
+
     await state.update_data(
         desired_result=message.text
     )
+
     data = await state.get_data()
+
     result = calculate_result(
         s=data["s"],
         o=data["o"],
@@ -274,35 +278,46 @@ async def process_desired_result(
         f=data["f"],
         h=data["h"]
     )
+
     await state.update_data(
         diagnostic_result=result
     )
-    available_dates = get_available_dates()
-    await state.set_state(
-        DiagnosticForm.consultation_date
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔎 Получить краткую расшифровку",
+                    callback_data="result:interpretation"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📅 Записаться на консультацию",
+                    callback_data="payment:start"
+                )
+            ]
+        ]
     )
+
     await message.answer(
-        "Благодарим за честность! Ваш профиль сформирован.\n"
+        "Благодарим за честность! Ваш профиль сформирован.\n\n"
         "Ваши ответы обработаны по авторской методике и "
-        "отправлены наставникам — Татьяне и Андрею Прокопчук.\n"
-        "Благодарим за честность! Диагностика завершена.\n"
-        "Мы приняли ваши данные и сформировали "
-        "первичную карту вашей системы "
-        "по методике PRO Unity Consult.\n\n"
-        "Что ждет вас на 60-минутной личной встрече:\n"
-        "-Точечный разбор ваших результатов по Формуле PROрезультат.\n"
-        "-Анализ вашей ключевой задачи и скрытых «слепых зон». \n"
-        "-Пошаговый вектор решений для вашего направления.\n\n"
+        "отправлены наставникам — Татьяне и Андрею Прокопчук.\n\n"
+
+        "📊 Ваш результат диагностики:\n"
+        f"R = {result['R']}\n\n"
+
+        "Это ваш текущий показатель по Формуле PROрезультат. "
+        "На личной встрече мы разберём, за счёт каких факторов "
+        "он сформирован и где находятся точки роста.\n\n"
+
         "Стоимость фиксации слота: 10 €.\n"
         "(Символический взнос для бронирования "
         "персонального времени наставников).\n\n"
-        "Зафиксируйте удобную дату в календаре:"
-    )
-    await message.answer(
-        "Ближайшие доступные рабочие дни:",
-        reply_markup=dates_keyboard(
-            available_dates
-        )
+
+        "Выберите действие:",
+        reply_markup=keyboard
     )
 # ============================================================
 # CONSULTATION DATE
@@ -417,10 +432,49 @@ async def process_consultation_time(
         reply_markup=payment_keyboard()
     )
 # ============================================================
+# RESULT INTERPRETATION
+# ============================================================
+@router.callback_query(
+    F.data == "result:interpretation"
+)
+async def show_result_interpretation(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+    data = await state.get_data()
+
+    result_data = data.get(
+        "diagnostic_result"
+    )
+
+    if isinstance(result_data, dict):
+        diagnostic_result = result_data.get("R")
+    else:
+        diagnostic_result = result_data
+
+    if diagnostic_result is None:
+        await callback.answer(
+            "Результат диагностики не найден.",
+            show_alert=True
+        )
+        return
+
+    result_interpretation = interpret_result(
+        diagnostic_result
+    )
+
+    await callback.answer()
+
+    await callback.message.answer(
+        "🔎 Краткая расшифровка результата\n\n"
+        f"Ваш результат: R = {diagnostic_result}\n\n"
+        f"➡️ {result_interpretation}"
+    )
+
+# ============================================================
 # PAYMENT START
 # ============================================================
 @router.callback_query(
-    DiagnosticForm.payment,
     F.data == "payment:start"
 )
 async def process_payment_start(
@@ -436,6 +490,28 @@ async def process_payment_start(
     await callback.answer(
         "Проверяем доступность времени..."
     )
+
+    # ========================================================
+    # ПЕРВЫЙ ШАГ — ПОКАЗЫВАЕМ ДОСТУПНЫЕ ДАТЫ
+    # ========================================================
+    data = await state.get_data()
+
+    if not data.get("consultation_date"):
+
+        available_dates = get_available_dates()
+
+        await state.set_state(
+            DiagnosticForm.consultation_date
+        )
+
+        await callback.message.answer(
+            "Ближайшие доступные рабочие дни:",
+            reply_markup=dates_keyboard(
+                available_dates
+            )
+        )
+
+        return
 
     base_url = os.getenv("BASE_URL")
 
