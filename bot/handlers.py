@@ -475,7 +475,16 @@ async def show_result_interpretation(
         "формируют его сейчас и где находится наиболее сильная "
         "точка роста именно для вашей ситуации."
     )
-
+keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="📅 Записаться на консультацию",
+                callback_data="payment:start"
+            )
+        ]
+    ]
+)
 # ============================================================
 # PAYMENT START
 # ============================================================
