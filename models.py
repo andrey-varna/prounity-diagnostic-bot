@@ -111,3 +111,9 @@ class Consultation(Base):
         default=datetime.utcnow,
         nullable=False
     )
+
+    ad_source: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        default="organic"
+    )

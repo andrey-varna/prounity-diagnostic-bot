@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
-from bot.handlers import router
+from bot.handlers_old import router
 
 load_dotenv()
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
