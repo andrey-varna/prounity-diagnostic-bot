@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
-from aiogram.filters import CommandStart, CommandObject
+from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
@@ -62,7 +62,8 @@ async def start_handler_with_deeplink(
     payload = command.args or ""
 
     # --------------------------------------------------------
-    # Возврат из Stripe после оплаты: /start paid_<consultation_id>
+    # Возврат из Stripe после оплаты:
+    # /start paid_<consultation_id>
     # --------------------------------------------------------
     if payload.startswith("paid_"):
         raw_id = payload.removeprefix("paid_")
@@ -87,62 +88,31 @@ async def start_handler_with_deeplink(
                     "До скорого!"
                 )
             else:
-                # Webhook от Stripe может прийти на пару секунд позже редиректа —
-                # это нормально, статус обновится сам
                 await message.answer(
                     "⏳ Оплата обрабатывается.\n\n"
                     "Обычно это занимает несколько секунд. "
                     "Если статус не обновится в течение пары минут — "
                     "напишите нам, мы всё проверим вручную."
                 )
+
             return
 
     # --------------------------------------------------------
-    # Обычный запуск, в т.ч. с рекламы: /start fb_ad1 / ig_reel2 и т.п.
+    # Обычный запуск с рекламы:
+    # /start facebook_women35
     # --------------------------------------------------------
     await state.clear()
+
     ad_source = payload or "organic"
-    await state.update_data(ad_source=ad_source)
 
-    print(f"NEW USER START | telegram_id={message.from_user.id} | ad_source={ad_source}")
-
-    await _send_welcome(message, state)
-
-
-# ============================================================
-# START (без параметров — обычный запуск бота)
-# ============================================================
-@router.message(CommandStart())
-async def start_handler(
-    message: Message,
-    state: FSMContext,
-):
-    await state.clear()
-
-    # ========================================================
-    # ДИАГНОСТИКА DEEP LINK
-    # ========================================================
-    print(f"RAW START MESSAGE: {message.text!r}")
-
-    # ========================================================
-    # ОПРЕДЕЛЯЕМ ИСТОЧНИК
-    # ========================================================
-    ad_source = "organic"
-
-    if message.text:
-        parts = message.text.split(maxsplit=1)
-
-        if len(parts) > 1:
-            ad_source = parts[1].strip()
-
-    # ========================================================
-    # СОХРАНЯЕМ ИСТОЧНИК В FSM
-    # ========================================================
     await state.update_data(
         ad_source=ad_source
     )
 
-    print(f"AD SOURCE SAVED: {ad_source!r}")
+    print(
+        f"START | telegram_id={message.from_user.id} "
+        f"| ad_source={ad_source!r}"
+    )
 
     await _send_welcome(message, state)
 
