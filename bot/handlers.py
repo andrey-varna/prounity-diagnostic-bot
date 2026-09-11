@@ -118,6 +118,10 @@ async def start_handler(
     state: FSMContext,
 ):
     await state.clear()
+    print("=" * 50)
+    print("RAW START MESSAGE:")
+    print(repr(message.text))
+    print("=" * 50)
 
     # ========================================================
     # ОПРЕДЕЛЯЕМ ИСТОЧНИК ПЕРЕХОДА
