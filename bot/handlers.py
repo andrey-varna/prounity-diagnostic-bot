@@ -51,10 +51,11 @@ def _pending_cutoff() -> datetime:
 
 
 # ============================================================
-# START (с deep link — реклама или возврат после оплаты)
+# START
+# Обычный запуск / deep link / возврат после оплаты
 # ============================================================
-@router.message(CommandStart(deep_link=True))
-async def start_handler_with_deeplink(
+@router.message(CommandStart())
+async def start_handler(
     message: Message,
     state: FSMContext,
     command: CommandObject,
@@ -98,8 +99,7 @@ async def start_handler_with_deeplink(
             return
 
     # --------------------------------------------------------
-    # Обычный запуск с рекламы:
-    # /start facebook_women35
+    # Обычный запуск или рекламный deep link
     # --------------------------------------------------------
     await state.clear()
 
@@ -111,6 +111,7 @@ async def start_handler_with_deeplink(
 
     print(
         f"START | telegram_id={message.from_user.id} "
+        f"| payload={payload!r} "
         f"| ad_source={ad_source!r}"
     )
 
