@@ -570,38 +570,27 @@ async def process_payment_start(
         data = await state.get_data()
 
         telegram_id = callback.from_user.id
-
-        consultation_date = data.get(
-            "consultation_date"
-        )
-
-        consultation_time = data.get(
-            "consultation_time"
-        )
-
+        consultation_date = data.get("consultation_date")
+        consultation_time = data.get("consultation_time")
         goal = data.get("goal")
 
         s = data.get("s")
         o = data.get("o")
         l = data.get("l")
+
         n = data.get("n")
         f = data.get("f")
         h = data.get("h")
 
-        result_data = data.get(
-            "diagnostic_result"
-        )
+        result_data = data.get("diagnostic_result")
 
-        # calculate_result возвращает словарь,
-        # в базе сохраняем только итоговое значение R
         if isinstance(result_data, dict):
             diagnostic_result = result_data.get("R")
         else:
             diagnostic_result = result_data
 
-        desired_result = data.get(
-            "desired_result"
-        )
+        desired_result = data.get("desired_result")
+        ad_source = data.get("ad_source", "organic")
 
         print("=" * 50)
         print("PAYMENT DATA")
@@ -619,6 +608,7 @@ async def process_payment_start(
             f"Desired result: "
             f"{desired_result}"
         )
+        print(f"Ad source: {ad_source}")
         print("=" * 50)
 
         # ====================================================
@@ -725,11 +715,12 @@ async def process_payment_start(
                     h=h,
 
                     diagnostic_result=diagnostic_result,
-
                     desired_result=desired_result,
 
                     consultation_date=consultation_date,
                     consultation_time=consultation_time,
+
+                    ad_source=ad_source,
 
                     payment_status="pending",
                     is_processed=False
@@ -757,15 +748,9 @@ async def process_payment_start(
             # ОБНОВЛЯЕМ СУЩЕСТВУЮЩУЮ ЗАПИСЬ
             # ------------------------------------------------
             else:
-
                 print("=" * 50)
-                print(
-                    "UPDATING EXISTING CONSULTATION"
-                )
-                print(
-                    f"Consultation ID: "
-                    f"{consultation.id}"
-                )
+                print("UPDATING EXISTING CONSULTATION")
+                print(f"Consultation ID: {consultation.id}")
                 print("=" * 50)
 
                 consultation.goal = goal
@@ -778,23 +763,15 @@ async def process_payment_start(
                 consultation.f = f
                 consultation.h = h
 
-                consultation.diagnostic_result = (
-                    diagnostic_result
-                )
+                consultation.diagnostic_result = diagnostic_result
+                consultation.desired_result = desired_result
 
-                consultation.desired_result = (
-                    desired_result
-                )
+                consultation.ad_source = ad_source
 
                 await db.commit()
+                await db.refresh(consultation)
 
-                await db.refresh(
-                    consultation
-                )
-
-                print(
-                    "CONSULTATION UPDATED SUCCESSFULLY"
-                )
+                print("CONSULTATION UPDATED SUCCESSFULLY")
 
             # Сохраняем ID записи
             consultation_id = consultation.id
