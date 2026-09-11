@@ -118,13 +118,14 @@ async def start_handler(
     state: FSMContext,
 ):
     await state.clear()
-    print("=" * 50)
-    print("RAW START MESSAGE:")
-    print(repr(message.text))
-    print("=" * 50)
 
     # ========================================================
-    # ОПРЕДЕЛЯЕМ ИСТОЧНИК ПЕРЕХОДА
+    # ДИАГНОСТИКА DEEP LINK
+    # ========================================================
+    print(f"RAW START MESSAGE: {message.text!r}")
+
+    # ========================================================
+    # ОПРЕДЕЛЯЕМ ИСТОЧНИК
     # ========================================================
     ad_source = "organic"
 
@@ -141,14 +142,9 @@ async def start_handler(
         ad_source=ad_source
     )
 
-    print("=" * 50)
-    print("START HANDLER")
-    print(f"Telegram ID: {message.from_user.id}")
-    print(f"Ad source: {ad_source}")
-    print("=" * 50)
+    print(f"AD SOURCE SAVED: {ad_source!r}")
 
     await _send_welcome(message, state)
-
 
 async def _send_welcome(message: Message, state: FSMContext):
     await message.answer(
