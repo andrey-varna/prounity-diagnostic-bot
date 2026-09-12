@@ -537,7 +537,7 @@ async def process_consultation_time(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Подтвердить выбранное время",
+                    text="✅ Подтвердить выбранное время",
                     callback_data="payment:start"
                 )
             ],
