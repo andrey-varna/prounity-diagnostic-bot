@@ -143,7 +143,7 @@ async def process_goal(
         "Шаг 2. Оценка по Формуле (Баллы 0–10).\n\n"
         "Теперь давайте разложим вашу задачу по Формуле PROрезультат. \n\n"
         "Оцените 6 показателей от 0 до 10, опираясь на свои ощущения:\n\n"
-        "•	S (Сила)-Ваш внутренний ресурс: Насколько вы полны энергии, "
+        "•  S (Сила)-Ваш внутренний ресурс: Насколько вы полны энергии, "
         "вдохновения и физических сил для решения этой задачи?\n\n"
         "[ 0-Полное истощение/воля ] ↔ [10-Огромный драйв и энергия]",
         reply_markup=rating_keyboard(0, 10)
@@ -175,7 +175,7 @@ async def process_s(
     )
     await state.set_state(DiagnosticForm.o)
     await callback.message.answer(
-        "•	O (Опоры) — Качество вашей поддержки: \n\n "
+        "•  O (Опоры) — Качество вашей поддержки: \n\n "
         "Насколько вы чувствуете надежный тыл\n"
         "(понимание в семье, личные ценности, верное окружение)?\n\n"
         "[0-Одиночество] ↔ [10-Мощная поддержка и тепло]",
@@ -208,7 +208,7 @@ async def process_o(
     )
     await state.set_state(DiagnosticForm.l)
     await callback.message.answer(
-        "•	L (Рычаги) — Управление и система:\n\n"
+        "•  L (Рычаги) — Управление и система:\n\n"
         "Насколько у вас есть понятные инструменты,\n"
         "навыки и стратегия (без необходимости тушить пожары 24/7)?\n\n "
         "[0-Хаос и микроменеджмент] ↔ [10-Четкая работающая система]\n",
@@ -274,7 +274,7 @@ async def process_n(
     )
     await state.set_state(DiagnosticForm.f)
     await callback.message.answer(
-        "•	F (Страхи): Уровень фоновой тревоги\n "
+        "•  F (Страхи): Уровень фоновой тревоги\n "
         "(страх прогореть, потерять контроль, не оправдать ожиданий).\n\n"
         "[1-Спокойствие и уверенность] ↔ [10-Сильный фоновый страх]",
         reply_markup=rating_keyboard(1, 10)
@@ -305,7 +305,7 @@ async def process_f(
     )
     await state.set_state(DiagnosticForm.h)
     await callback.message.answer(
-        "•	H (Привычки):\n"
+        "•  H (Привычки):\n"
         " Насколько часто вы наступаете на одни и те же грабли в кризисных ситуациях?\n\n "
         "[1-Действую осознанно] ↔ [10-Регулярно срываюсь в старые сценарии]",
         reply_markup=rating_keyboard(1, 10)
@@ -533,9 +533,58 @@ async def process_consultation_time(
     await state.set_state(
         DiagnosticForm.payment
     )
+    confirmation_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Подтвердить выбранное время",
+                    callback_data="payment:start"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Выбрать другие дату/время",
+                    callback_data="booking:change"
+                )
+            ]
+        ]
+    )
+
     await callback.message.answer(
         "Подтвердить выбранное время:",
-        reply_markup=payment_keyboard()
+        reply_markup=confirmation_keyboard
+    )
+
+
+# ============================================================
+# CHANGE CONSULTATION DATE/TIME
+# ============================================================
+@router.callback_query(
+    DiagnosticForm.payment,
+    F.data == "booking:change"
+)
+async def change_consultation_datetime(
+    callback: CallbackQuery,
+    state: FSMContext
+):
+    await callback.answer()
+
+    await state.update_data(
+        consultation_date=None,
+        consultation_time=None
+    )
+
+    await state.set_state(
+        DiagnosticForm.consultation_date
+    )
+
+    available_dates = get_available_dates()
+
+    await callback.message.answer(
+        "Ближайшие доступные рабочие дни:",
+        reply_markup=dates_keyboard(
+            available_dates
+        )
     )
 
 
@@ -620,12 +669,6 @@ async def process_payment_start(
     callback: CallbackQuery,
     state: FSMContext
 ):
-    print("=" * 50)
-    print("PAYMENT BUTTON CLICKED")
-    print(f"User: {callback.from_user.id}")
-    print(f"Callback data: {callback.data}")
-    print("=" * 50)
-
     await callback.answer(
         "Проверяем доступность времени..."
     )
@@ -688,19 +731,6 @@ async def process_payment_start(
 
         # атрибуция рекламы — сохранена ещё на /start
         ad_source = data.get("ad_source", "organic")
-
-        print("=" * 50)
-        print("PAYMENT DATA")
-        print(f"Telegram ID: {telegram_id}")
-        print(f"Date: {consultation_date}")
-        print(f"Time: {consultation_time}")
-        print(f"Goal: {goal}")
-        print(f"S={s}, O={o}, L={l}")
-        print(f"N={n}, F={f}, H={h}")
-        print(f"Diagnostic result: {diagnostic_result}")
-        print(f"Desired result: {desired_result}")
-        print(f"Ad source: {ad_source}")
-        print("=" * 50)
 
         if not consultation_date or not consultation_time:
             await callback.message.answer(
@@ -793,11 +823,6 @@ async def process_payment_start(
                     print("=" * 50)
 
                 else:
-                    print("=" * 50)
-                    print("UPDATING EXISTING CONSULTATION")
-                    print(f"Consultation ID: {consultation.id}")
-                    print("=" * 50)
-
                     consultation.goal = goal
                     consultation.s = s
                     consultation.o = o
@@ -811,8 +836,6 @@ async def process_payment_start(
 
                     await db.commit()
                     await db.refresh(consultation)
-
-                    print("CONSULTATION UPDATED SUCCESSFULLY")
 
             except IntegrityError:
                 # Сработал уникальный индекс на (date, time, active-статус) —
