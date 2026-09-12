@@ -70,7 +70,7 @@ def payment_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Оплатить консультацию — 10 €",
+                    text="✅ Подтвердить время",
                     callback_data="payment:start"
                 )
             ]
