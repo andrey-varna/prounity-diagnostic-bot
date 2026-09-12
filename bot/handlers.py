@@ -24,6 +24,7 @@ async def debug_start_message(message: Message):
     print(
         f"DEBUG START | text={message.text!r}"
     )
+
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
@@ -34,10 +35,10 @@ PENDING_TTL_MINUTES = 30
 # (например "unity_consult_bot"). Задать в .env
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
+
 def _pending_cutoff() -> datetime:
     """Момент времени, старее которого pending-записи не блокируют слот."""
     return datetime.utcnow() - timedelta(minutes=PENDING_TTL_MINUTES)
-
 # ============================================================
 # START
 # Обычный запуск / deep link / возврат после оплаты
@@ -531,7 +532,7 @@ async def process_consultation_time(
         f"🕒 Время: {selected_time}–"
         f"{int(selected_time[:2]) + 1:02d}:00\n\n"
         "Для окончательного бронирования необходимо "
-        "оплатить 10 €.\n\n"
+        "подтвердить выбранное время и оплатить 10 €.\n\n"
         "После успешной оплаты выбранное время будет "
         "закреплено за вами."
     )
@@ -539,7 +540,7 @@ async def process_consultation_time(
         DiagnosticForm.payment
     )
     await callback.message.answer(
-        "Нажмите кнопку ниже для перехода к оплате:",
+        "Подтвердить выбранное время:",
         reply_markup=payment_keyboard()
     )
 
@@ -889,7 +890,7 @@ async def process_payment_start(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="Подтвердить выбранное время",
+                        text="Оплатить резервирование 10 евро",
                         url=session.url
                     )
                 ]
