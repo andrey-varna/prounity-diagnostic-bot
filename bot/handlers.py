@@ -3,8 +3,13 @@ from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-    InlineKeyboardMarkup, Message,)
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    FSInputFile,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from services.stripe_service import create_checkout_session
@@ -106,17 +111,25 @@ async def start_handler(
     await _send_welcome(message, state)
 
 async def _send_welcome(message: Message, state: FSMContext):
-    await message.answer(
-        "Добро пожаловать в диагностику PRO Unity Consult.\n\n"
-        "За 2 минуты вы сможете оценить состояние вашей системы "
-        "по Формуле PROрезультат и увидите, "
-        "где у вас скрыт мощный ресурс, а что забирает силы.\n\n"
-        "Начинаем.\n\n"
-        "Шаг 1 из 3. Ваша текущая ситуация\n\n"
-        "🎯 Опишите в 1–2 предложениях: с каким главным вызовом или задачей "
-        "в бизнесе/жизни вы сталкиваетесь прямо сейчас?:\n\n"
-        "(Например: выгорание, потолок в доходе, микроконтроль, напряжение в семье)"
+    photo = FSInputFile(
+        "images/welcome_photo.jpg"
     )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=(
+            "Добро пожаловать в диагностику PRO Unity Consult.\n\n"
+            "За 2 минуты вы сможете оценить состояние вашей системы "
+            "по Формуле PROрезультат и увидите, "
+            "где у вас скрыт мощный ресурс, а что забирает силы.\n\n"
+            "Начинаем.\n\n"
+            "Шаг 1 из 3. Ваша текущая ситуация\n\n"
+            "🎯 Опишите в 1–2 предложениях: с каким главным вызовом или задачей "
+            "в бизнесе/жизни вы сталкиваетесь прямо сейчас?:\n\n"
+            "(Например: выгорание, потолок в доходе, микроконтроль, напряжение в семье)"
+        )
+    )
+
     await state.set_state(DiagnosticForm.problem)
 
 
