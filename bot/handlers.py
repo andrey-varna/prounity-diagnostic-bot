@@ -49,11 +49,11 @@ async def start_handler(
     command: CommandObject,
 ):
     payload = command.args or ""
-    print(
-        f"START RECEIVED | telegram_id={message.from_user.id} "
-        f"| message={message.text!r} "
-        f"| command_args={command.args!r}"
-    )
+    #print(
+    #   f"START RECEIVED | telegram_id={message.from_user.id} "
+    #    f"| message={message.text!r} "
+    #    f"| command_args={command.args!r}"
+    #)
 
     # --------------------------------------------------------
     # Возврат из Stripe после оплаты:
@@ -102,11 +102,11 @@ async def start_handler(
         ad_source=ad_source
     )
 
-    print(
-        f"START | telegram_id={message.from_user.id} "
-        f"| payload={payload!r} "
-        f"| ad_source={ad_source!r}"
-    )
+    #print(
+    #    f"START | telegram_id={message.from_user.id} "
+    #    f"| payload={payload!r} "
+    #    f"| ad_source={ad_source!r}"
+    #)
 
     await _send_welcome(message, state)
 
