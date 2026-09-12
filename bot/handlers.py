@@ -1,54 +1,42 @@
 import os
 from datetime import datetime, timedelta
-
 from aiogram import Router, F
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from aiogram.types import (CallbackQuery, InlineKeyboardButton,
+    InlineKeyboardMarkup, Message,)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-
 from services.stripe_service import create_checkout_session
-from services.formula import (
-    calculate_result,
-    interpret_result,
-    explain_positive_balance,
-)
+from services.formula import (calculate_result, interpret_result,
+    explain_positive_balance,)
 from services.schedule import get_available_dates, TIME_SLOTS
 from bot.states import DiagnosticForm
-from bot.keyboards import (
-    rating_keyboard,
-    dates_keyboard,
-    time_keyboard,
-    payment_keyboard,
-)
+from bot.keyboards import (rating_keyboard, dates_keyboard,
+    time_keyboard, payment_keyboard,)
 from database import AsyncSessionLocal
 from models import Consultation
 
 router = Router()
 
+@router.message(F.text.startswith("/start"))
+async def debug_start_message(message: Message):
+    print(
+        f"DEBUG START | text={message.text!r}"
+    )
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
-
 # Сколько минут "живёт" незавершённая (pending) запись,
 # после чего слот считается снова свободным для других
 PENDING_TTL_MINUTES = 30
-
 # Username бота без "@", нужен для deep link после оплаты
 # (например "unity_consult_bot"). Задать в .env
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 
-
 def _pending_cutoff() -> datetime:
     """Момент времени, старее которого pending-записи не блокируют слот."""
     return datetime.utcnow() - timedelta(minutes=PENDING_TTL_MINUTES)
-
 
 # ============================================================
 # START
