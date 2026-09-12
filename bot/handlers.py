@@ -61,6 +61,11 @@ async def start_handler(
     command: CommandObject,
 ):
     payload = command.args or ""
+    print(
+        f"START RECEIVED | telegram_id={message.from_user.id} "
+        f"| message={message.text!r} "
+        f"| command_args={command.args!r}"
+    )
 
     # --------------------------------------------------------
     # Возврат из Stripe после оплаты:
