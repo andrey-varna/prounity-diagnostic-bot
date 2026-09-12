@@ -19,12 +19,6 @@ from models import Consultation
 
 router = Router()
 
-@router.message(F.text.startswith("/start"))
-async def debug_start_message(message: Message):
-    print(
-        f"DEBUG START | text={message.text!r}"
-    )
-
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
