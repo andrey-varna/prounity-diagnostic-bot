@@ -11,17 +11,28 @@ if not STRIPE_SECRET_KEY:
 
 stripe.api_key = STRIPE_SECRET_KEY
 
+
 async def create_checkout_session(
     success_url: str,
     cancel_url: str,
     telegram_id: int,
     consultation_date: str,
     consultation_time: str,
+    metadata: dict | None = None,
 ):
     price_id = os.getenv("STRIPE_PRICE_ID")
 
     if not price_id:
         raise RuntimeError("STRIPE_PRICE_ID is not set")
+
+    stripe_metadata = {
+        "telegram_id": str(telegram_id),
+        "consultation_date": consultation_date,
+        "consultation_time": consultation_time,
+    }
+
+    if metadata:
+        stripe_metadata.update(metadata)
 
     session = stripe.checkout.Session.create(
         mode="payment",
@@ -36,11 +47,7 @@ async def create_checkout_session(
         success_url=success_url,
         cancel_url=cancel_url,
 
-        metadata={
-            "telegram_id": str(telegram_id),
-            "consultation_date": consultation_date,
-            "consultation_time": consultation_time,
-        }
+        metadata=stripe_metadata,
     )
 
     return session
