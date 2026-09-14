@@ -112,14 +112,15 @@ async def start_handler(
 
 async def _send_welcome(message: Message, state: FSMContext):
     photo = FSInputFile(
-        "images/welcome_photo.jpg"
+        "images/Начальное фото.jpg"
     )
 
     await message.answer_photo(
         photo=photo,
         caption=(
+            "Приветствуем вас! Мы - Татьяна и Андрей Прокопчук.\n "
             "Добро пожаловать в диагностику PRO Unity Consult.\n\n"
-            "За 2 минуты вы сможете оценить состояние вашей системы "
+            "За 3 минуты вы сможете оценить состояние вашей системы "
             "по Формуле PROрезультат и увидите, "
             "где у вас скрыт мощный ресурс, а что забирает силы.\n\n"
             "Начинаем.\n\n"
