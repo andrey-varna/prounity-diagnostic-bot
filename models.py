@@ -9,7 +9,6 @@ from sqlalchemy import (
     Text,
     Float,
 )
-
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -78,14 +77,16 @@ class Consultation(Base):
         nullable=True
     )
 
-    consultation_date: Mapped[str] = mapped_column(
+    # Дата и время консультации.
+    # До бронирования могут быть NULL.
+    consultation_date: Mapped[str | None] = mapped_column(
         String(20),
-        nullable=False
+        nullable=True
     )
 
-    consultation_time: Mapped[str] = mapped_column(
+    consultation_time: Mapped[str | None] = mapped_column(
         String(10),
-        nullable=False
+        nullable=True
     )
 
     stripe_session_id: Mapped[str | None] = mapped_column(
@@ -96,7 +97,7 @@ class Consultation(Base):
 
     payment_status: Mapped[str] = mapped_column(
         String(30),
-        default="pending",
+        default="not_started",
         nullable=False
     )
 
@@ -112,8 +113,22 @@ class Consultation(Base):
         nullable=False
     )
 
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+
     ad_source: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         default="organic"
+    )
+
+    # Текущий этап воронки
+    funnel_stage: Mapped[str] = mapped_column(
+        String(30),
+        default="started",
+        nullable=False
     )

@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+
 from aiogram import Router, F
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -12,24 +13,36 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+
 from services.stripe_service import create_checkout_session
-from services.formula import (calculate_result, interpret_result,
-    explain_positive_balance,)
+from services.formula import (
+    calculate_result,
+    interpret_result,
+    explain_positive_balance,
+)
 from services.schedule import get_available_dates, TIME_SLOTS
 from bot.states import DiagnosticForm
-from bot.keyboards import (rating_keyboard, dates_keyboard,
-    time_keyboard, payment_keyboard,)
+from bot.keyboards import (
+    rating_keyboard,
+    dates_keyboard,
+    time_keyboard,
+    payment_keyboard,
+)
 from database import AsyncSessionLocal
 from models import Consultation
 
+
 router = Router()
+
 
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
+
 # Сколько минут "живёт" незавершённая (pending) запись,
 # после чего слот считается снова свободным для других
 PENDING_TTL_MINUTES = 30
+
 # Username бота без "@", нужен для deep link после оплаты
 # (например "unity_consult_bot"). Задать в .env
 BOT_USERNAME = os.getenv("BOT_USERNAME")
@@ -38,10 +51,94 @@ BOT_USERNAME = os.getenv("BOT_USERNAME")
 def _pending_cutoff() -> datetime:
     """Момент времени, старее которого pending-записи не блокируют слот."""
     return datetime.utcnow() - timedelta(minutes=PENDING_TTL_MINUTES)
+
+
+# ============================================================
+# DATABASE / FUNNEL
+# ============================================================
+
+async def _create_diagnostic_session(
+    telegram_id: int,
+    ad_source: str,
+) -> int:
+    """
+    Создаёт запись диагностики сразу после /start.
+
+    На этом этапе:
+    - дата и время консультации ещё отсутствуют;
+    - оплата ещё не начата;
+    - запись не блокирует никакой слот.
+    """
+
+    async with AsyncSessionLocal() as db:
+        consultation = Consultation(
+            telegram_id=telegram_id,
+            payment_status="not_started",
+            is_processed=False,
+            ad_source=ad_source,
+            funnel_stage="started",
+        )
+
+        db.add(consultation)
+        await db.commit()
+        await db.refresh(consultation)
+
+        return consultation.id
+
+
+async def _update_consultation(
+    consultation_id: int | None,
+    **fields,
+) -> None:
+    """
+    Обновляет существующую запись диагностики.
+    Если ID ещё не установлен, ничего не делает.
+    """
+
+    if not consultation_id:
+        return
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Consultation).where(
+                Consultation.id == consultation_id
+            )
+        )
+
+        consultation = result.scalar_one_or_none()
+
+        if not consultation:
+            return
+
+        for field, value in fields.items():
+            setattr(consultation, field, value)
+
+        await db.commit()
+
+
+async def _get_consultation(
+    consultation_id: int | None,
+):
+    """Возвращает существующую запись диагностики."""
+
+    if not consultation_id:
+        return None
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Consultation).where(
+                Consultation.id == consultation_id
+            )
+        )
+
+        return result.scalar_one_or_none()
+
+
 # ============================================================
 # START
 # Обычный запуск / deep link / возврат после оплаты
 # ============================================================
+
 @router.message(CommandStart())
 async def start_handler(
     message: Message,
@@ -49,16 +146,12 @@ async def start_handler(
     command: CommandObject,
 ):
     payload = command.args or ""
-    #print(
-    #   f"START RECEIVED | telegram_id={message.from_user.id} "
-    #    f"| message={message.text!r} "
-    #    f"| command_args={command.args!r}"
-    #)
 
     # --------------------------------------------------------
     # Возврат из Stripe после оплаты:
     # /start paid_<consultation_id>
     # --------------------------------------------------------
+
     if payload.startswith("paid_"):
         raw_id = payload.removeprefix("paid_")
 
@@ -71,6 +164,7 @@ async def start_handler(
                         Consultation.id == consultation_id
                     )
                 )
+
                 consultation = result.scalar_one_or_none()
 
             if consultation and consultation.payment_status == "paid":
@@ -94,23 +188,31 @@ async def start_handler(
     # --------------------------------------------------------
     # Обычный запуск или рекламный deep link
     # --------------------------------------------------------
+
     await state.clear()
 
     ad_source = payload or "organic"
 
-    await state.update_data(
-        ad_source=ad_source
+    # Создаём запись в БД сразу при входе
+    consultation_id = await _create_diagnostic_session(
+        telegram_id=message.from_user.id,
+        ad_source=ad_source,
     )
 
-    #print(
-    #    f"START | telegram_id={message.from_user.id} "
-    #    f"| payload={payload!r} "
-    #    f"| ad_source={ad_source!r}"
-    #)
+    # Сохраняем ID записи в FSM,
+    # чтобы дальше обновлять именно её
+    await state.update_data(
+        consultation_id=consultation_id,
+        ad_source=ad_source,
+    )
 
     await _send_welcome(message, state)
 
-async def _send_welcome(message: Message, state: FSMContext):
+
+async def _send_welcome(
+    message: Message,
+    state: FSMContext,
+):
     photo = FSInputFile(
         "images/Начальное фото.jpg"
     )
@@ -131,16 +233,19 @@ async def _send_welcome(message: Message, state: FSMContext):
         )
     )
 
-    await state.set_state(DiagnosticForm.problem)
+    await state.set_state(
+        DiagnosticForm.problem
+    )
 
 
 # ============================================================
 # GOAL
 # ============================================================
+
 @router.message(DiagnosticForm.problem)
 async def process_goal(
     message: Message,
-    state: FSMContext
+    state: FSMContext,
 ):
     if not message.text:
         await message.answer(
@@ -151,7 +256,19 @@ async def process_goal(
     await state.update_data(
         goal=message.text
     )
-    await state.set_state(DiagnosticForm.s)
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        goal=message.text,
+        funnel_stage="goal",
+    )
+
+    await state.set_state(
+        DiagnosticForm.s
+    )
+
     await message.answer(
         "Отлично, приняли.\n\n"
         "Шаг 2. Оценка по Формуле (Баллы 0–10).\n\n"
@@ -167,27 +284,47 @@ async def process_goal(
 # ============================================================
 # S
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.s,
     F.data.startswith("rating:")
 )
 async def process_s(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
 
     if not 0 <= value <= 10:
         await callback.answer(
             "Выберите значение от 0 до 10"
         )
         return
-    await state.update_data(s=value)
+
+    await state.update_data(
+        s=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        s=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.o)
+
+    await state.set_state(
+        DiagnosticForm.o
+    )
+
     await callback.message.answer(
         "•  O (Опоры) — Качество вашей поддержки: \n\n "
         "Насколько вы чувствуете надежный тыл\n"
@@ -200,27 +337,47 @@ async def process_s(
 # ============================================================
 # O
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.o,
     F.data.startswith("rating:")
 )
 async def process_o(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
 
     if not 0 <= value <= 10:
         await callback.answer(
             "Выберите значение от 0 до 10"
         )
         return
-    await state.update_data(o=value)
+
+    await state.update_data(
+        o=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        o=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.l)
+
+    await state.set_state(
+        DiagnosticForm.l
+    )
+
     await callback.message.answer(
         "•  L (Рычаги) — Управление и система:\n\n"
         "Насколько у вас есть понятные инструменты,\n"
@@ -233,26 +390,47 @@ async def process_o(
 # ============================================================
 # L
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.l,
     F.data.startswith("rating:")
 )
 async def process_l(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
+
     if not 0 <= value <= 10:
         await callback.answer(
             "Выберите значение от 0 до 10"
         )
         return
-    await state.update_data(l=value)
+
+    await state.update_data(
+        l=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        l=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.n)
+
+    await state.set_state(
+        DiagnosticForm.n
+    )
+
     await callback.message.answer(
         "А теперь оцените «барьеры»\n"
         " - то, что незаметно тормозит движение:\n\n"
@@ -267,26 +445,47 @@ async def process_l(
 # ============================================================
 # N
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.n,
     F.data.startswith("rating:")
 )
 async def process_n(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
+
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-    await state.update_data(n=value)
+
+    await state.update_data(
+        n=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        n=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.f)
+
+    await state.set_state(
+        DiagnosticForm.f
+    )
+
     await callback.message.answer(
         "•  F (Страхи): Уровень фоновой тревоги\n "
         "(страх прогореть, потерять контроль, не оправдать ожиданий).\n\n"
@@ -298,26 +497,47 @@ async def process_n(
 # ============================================================
 # F
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.f,
     F.data.startswith("rating:")
 )
 async def process_f(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
+
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-    await state.update_data(f=value)
+
+    await state.update_data(
+        f=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        f=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.h)
+
+    await state.set_state(
+        DiagnosticForm.h
+    )
+
     await callback.message.answer(
         "•  H (Привычки):\n"
         " Насколько часто вы наступаете на одни и те же грабли в кризисных ситуациях?\n\n "
@@ -329,26 +549,47 @@ async def process_f(
 # ============================================================
 # H
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.h,
     F.data.startswith("rating:")
 )
 async def process_h(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
-    value = int(callback.data.split(":")[1])
+    value = int(
+        callback.data.split(":")[1]
+    )
+
     if not 1 <= value <= 10:
         await callback.answer(
             "Выберите значение от 1 до 10"
         )
         return
-    await state.update_data(h=value)
+
+    await state.update_data(
+        h=value
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        h=value,
+        funnel_stage="formula",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
-    await state.set_state(DiagnosticForm.desired_change)
+
+    await state.set_state(
+        DiagnosticForm.desired_change
+    )
+
     await callback.message.answer(
         "Принято! Остался финальный штрих\n\n"
         "Шаг 3 из 3. Желаемый результат\n\n"
@@ -362,10 +603,11 @@ async def process_h(
 # ============================================================
 # DESIRED RESULT
 # ============================================================
+
 @router.message(DiagnosticForm.desired_change)
 async def process_desired_result(
     message: Message,
-    state: FSMContext
+    state: FSMContext,
 ):
     if not message.text:
         await message.answer(
@@ -385,11 +627,24 @@ async def process_desired_result(
         l=data["l"],
         n=data["n"],
         f=data["f"],
-        h=data["h"]
+        h=data["h"],
     )
 
     await state.update_data(
         diagnostic_result=result
+    )
+
+    diagnostic_result = (
+        result.get("R")
+        if isinstance(result, dict)
+        else result
+    )
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        desired_result=message.text,
+        diagnostic_result=diagnostic_result,
+        funnel_stage="completed",
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -433,22 +688,33 @@ async def process_desired_result(
 # ============================================================
 # CONSULTATION DATE
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.consultation_date,
     F.data.startswith("date:")
 )
 async def process_consultation_date(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
     selected_date = callback.data.split(
         ":",
         1
     )[1]
+
     await state.update_data(
         consultation_date=selected_date
     )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        funnel_stage="booking",
+    )
+
     await callback.answer()
+
     await callback.message.edit_text(
         f"Вы выбрали дату: {selected_date}"
     )
@@ -472,6 +738,7 @@ async def process_consultation_date(
                 ),
             )
         )
+
         occupied_times = set(
             result.scalars().all()
         )
@@ -488,18 +755,22 @@ async def process_consultation_date(
             "уже нет.\n\n"
             "Пожалуйста, выберите другую дату."
         )
+
         available_dates = get_available_dates()
+
         await callback.message.answer(
             "Ближайшие доступные рабочие дни:",
             reply_markup=dates_keyboard(
                 available_dates
             )
         )
+
         return
 
     await state.set_state(
         DiagnosticForm.consultation_time
     )
+
     await callback.message.answer(
         "Теперь выберите удобное свободное время:",
         reply_markup=time_keyboard(
@@ -511,29 +782,43 @@ async def process_consultation_date(
 # ============================================================
 # CONSULTATION TIME
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.consultation_time,
     F.data.startswith("time:")
 )
 async def process_consultation_time(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
     selected_time = callback.data.split(
         ":",
         1
     )[1]
+
     await state.update_data(
         consultation_time=selected_time
     )
-    await callback.answer()
+
     data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        consultation_date=data.get("consultation_date"),
+        consultation_time=selected_time,
+        funnel_stage="booking",
+    )
+
+    await callback.answer()
+
     selected_date = data.get(
         "consultation_date"
     )
+
     await callback.message.edit_text(
         f"Вы выбрали время: {selected_time}"
     )
+
     await callback.message.answer(
         "Ваше предварительное время консультации:\n\n"
         f"📅 Дата: {selected_date}\n"
@@ -544,9 +829,11 @@ async def process_consultation_time(
         "После успешной оплаты выбранное время будет "
         "закреплено за вами."
     )
+
     await state.set_state(
         DiagnosticForm.payment
     )
+
     confirmation_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -573,19 +860,29 @@ async def process_consultation_time(
 # ============================================================
 # CHANGE CONSULTATION DATE/TIME
 # ============================================================
+
 @router.callback_query(
     DiagnosticForm.payment,
     F.data == "booking:change"
 )
 async def change_consultation_datetime(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
     await callback.answer()
 
     await state.update_data(
         consultation_date=None,
-        consultation_time=None
+        consultation_time=None,
+    )
+
+    data = await state.get_data()
+
+    await _update_consultation(
+        consultation_id=data.get("consultation_id"),
+        consultation_date=None,
+        consultation_time=None,
+        funnel_stage="booking",
     )
 
     await state.set_state(
@@ -605,16 +902,19 @@ async def change_consultation_datetime(
 # ============================================================
 # RESULT INTERPRETATION
 # ============================================================
+
 @router.callback_query(
     F.data == "result:interpretation"
 )
 async def show_result_interpretation(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
     data = await state.get_data()
 
-    result_data = data.get("diagnostic_result")
+    result_data = data.get(
+        "diagnostic_result"
+    )
 
     if isinstance(result_data, dict):
         diagnostic_result = result_data.get("R")
@@ -676,12 +976,13 @@ async def show_result_interpretation(
 # ============================================================
 # PAYMENT START
 # ============================================================
+
 @router.callback_query(
     F.data == "payment:start"
 )
 async def process_payment_start(
     callback: CallbackQuery,
-    state: FSMContext
+    state: FSMContext,
 ):
     await callback.answer(
         "Проверяем доступность времени..."
@@ -702,6 +1003,7 @@ async def process_payment_start(
                 available_dates
             )
         )
+
         return
 
     base_url = os.getenv("BASE_URL")
@@ -723,9 +1025,21 @@ async def process_payment_start(
 
         telegram_id = callback.from_user.id
 
-        consultation_date = data.get("consultation_date")
-        consultation_time = data.get("consultation_time")
-        goal = data.get("goal")
+        consultation_id = data.get(
+            "consultation_id"
+        )
+
+        consultation_date = data.get(
+            "consultation_date"
+        )
+
+        consultation_time = data.get(
+            "consultation_time"
+        )
+
+        goal = data.get(
+            "goal"
+        )
 
         s = data.get("s")
         o = data.get("o")
@@ -734,17 +1048,24 @@ async def process_payment_start(
         f = data.get("f")
         h = data.get("h")
 
-        result_data = data.get("diagnostic_result")
+        result_data = data.get(
+            "diagnostic_result"
+        )
 
         if isinstance(result_data, dict):
             diagnostic_result = result_data.get("R")
         else:
             diagnostic_result = result_data
 
-        desired_result = data.get("desired_result")
+        desired_result = data.get(
+            "desired_result"
+        )
 
         # атрибуция рекламы — сохранена ещё на /start
-        ad_source = data.get("ad_source", "organic")
+        ad_source = data.get(
+            "ad_source",
+            "organic"
+        )
 
         if not consultation_date or not consultation_time:
             await callback.message.answer(
@@ -762,6 +1083,7 @@ async def process_payment_start(
             # ПРОВЕРЯЕМ, НЕ ЗАНЯТ ЛИ СЛОТ ДРУГИМ КЛИЕНТОМ
             # (paid — всегда занято; pending — только если "свежий")
             # ------------------------------------------------
+
             result = await db.execute(
                 select(Consultation).where(
                     Consultation.consultation_date == consultation_date,
@@ -777,13 +1099,11 @@ async def process_payment_start(
                 )
             )
 
-            occupied_consultation = result.scalar_one_or_none()
+            occupied_consultation = (
+                result.scalar_one_or_none()
+            )
 
             if occupied_consultation:
-                print(
-                    "SLOT OCCUPIED BY CONSULTATION ID: "
-                    f"{occupied_consultation.id}"
-                )
                 await callback.message.answer(
                     "😔 К сожалению, это время только что "
                     "было выбрано другим клиентом.\n\n"
@@ -792,23 +1112,31 @@ async def process_payment_start(
                 return
 
             # ------------------------------------------------
-            # ИЩЕМ СУЩЕСТВУЮЩУЮ PENDING-ЗАПИСЬ ЭТОГО ЖЕ КЛИЕНТА
+            # НАХОДИМ НАШУ УЖЕ СУЩЕСТВУЮЩУЮ ЗАПИСЬ
             # ------------------------------------------------
-            result = await db.execute(
-                select(Consultation).where(
-                    Consultation.telegram_id == telegram_id,
-                    Consultation.consultation_date == consultation_date,
-                    Consultation.consultation_time == consultation_time,
-                    Consultation.payment_status == "pending",
-                )
-            )
 
-            consultation = result.scalar_one_or_none()
+            consultation = None
+
+            if consultation_id:
+                result = await db.execute(
+                    select(Consultation).where(
+                        Consultation.id == consultation_id,
+                        Consultation.telegram_id == telegram_id,
+                    )
+                )
+
+                consultation = (
+                    result.scalar_one_or_none()
+                )
+
+            # ------------------------------------------------
+            # ЕСЛИ ПО КАКОЙ-ТО ПРИЧИНЕ ЗАПИСИ НЕТ —
+            # СОЗДАЁМ ЕЁ ЗДЕСЬ КАК РЕЗЕРВНЫЙ ВАРИАНТ
+            # ------------------------------------------------
 
             try:
-                if not consultation:
-                    print("CREATING NEW CONSULTATION...")
 
+                if not consultation:
                     consultation = Consultation(
                         telegram_id=telegram_id,
                         goal=goal,
@@ -825,16 +1153,10 @@ async def process_payment_start(
                         payment_status="pending",
                         is_processed=False,
                         ad_source=ad_source,
+                        funnel_stage="pending",
                     )
 
                     db.add(consultation)
-                    await db.commit()
-                    await db.refresh(consultation)
-
-                    print("=" * 50)
-                    print("CONSULTATION CREATED SUCCESSFULLY")
-                    print(f"Consultation ID: {consultation.id}")
-                    print("=" * 50)
 
                 else:
                     consultation.goal = goal
@@ -846,39 +1168,49 @@ async def process_payment_start(
                     consultation.h = h
                     consultation.diagnostic_result = diagnostic_result
                     consultation.desired_result = desired_result
+                    consultation.consultation_date = consultation_date
+                    consultation.consultation_time = consultation_time
+                    consultation.payment_status = "pending"
                     consultation.ad_source = ad_source
+                    consultation.funnel_stage = "pending"
 
-                    await db.commit()
-                    await db.refresh(consultation)
+                await db.commit()
+                await db.refresh(consultation)
 
             except IntegrityError:
-                # Сработал уникальный индекс на (date, time, active-статус) —
-                # значит слот заняли буквально в последнюю миллисекунду
+                # Слот заняли буквально в последнюю миллисекунду
                 await db.rollback()
-                print("SLOT TAKEN AT DB LEVEL (IntegrityError)")
+
                 await callback.message.answer(
                     "😔 К сожалению, это время только что "
                     "было выбрано другим клиентом.\n\n"
                     "Пожалуйста, начните выбор времени заново."
                 )
+
                 return
 
             consultation_id = consultation.id
 
+        # Сохраняем ID на случай, если он был создан
+        # резервным вариантом
+        await state.update_data(
+            consultation_id=consultation_id
+        )
+
         # ====================================================
         # СОЗДАЁМ STRIPE CHECKOUT SESSION
         # ====================================================
-        print("=" * 50)
-        print("CREATING STRIPE SESSION")
-        print(f"Consultation ID: {consultation_id}")
-        print("=" * 50)
 
         # success_url ведёт обратно в Telegram через deep link,
         # чтобы после оплаты пользователь не "застревал" в браузере
         success_url = (
-            f"https://t.me/{BOT_USERNAME}?start=paid_{consultation_id}"
+            f"https://t.me/{BOT_USERNAME}"
+            f"?start=paid_{consultation_id}"
         )
-        cancel_url = f"{base_url}/payment/cancel"
+
+        cancel_url = (
+            f"{base_url}/payment/cancel"
+        )
 
         session = await create_checkout_session(
             success_url=success_url,
@@ -886,36 +1218,29 @@ async def process_payment_start(
             telegram_id=telegram_id,
             consultation_date=consultation_date,
             consultation_time=consultation_time,
-            metadata={
-                "consultation_id": str(consultation_id),
-                "ad_source": ad_source,
-            },
         )
 
-        print(f"STRIPE SESSION CREATED: {session.id}")
+        # ====================================================
+        # СОХРАНЯЕМ STRIPE SESSION ID
+        # ====================================================
 
         async with AsyncSessionLocal() as db:
+
             result = await db.execute(
                 select(Consultation).where(
                     Consultation.id == consultation_id
                 )
             )
-            consultation = result.scalar_one_or_none()
+
+            consultation = (
+                result.scalar_one_or_none()
+            )
 
             if consultation:
                 consultation.stripe_session_id = session.id
-                await db.commit()
+                consultation.funnel_stage = "pending"
 
-                print("=" * 50)
-                print("STRIPE SESSION ID SAVED")
-                print(f"Consultation ID: {consultation.id}")
-                print(f"Stripe Session: {session.id}")
-                print("=" * 50)
-            else:
-                print(
-                    "ERROR: CONSULTATION NOT FOUND "
-                    "WHEN SAVING STRIPE SESSION"
-                )
+                await db.commit()
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -937,11 +1262,9 @@ async def process_payment_start(
         )
 
     except Exception as e:
-        print("=" * 50)
-        print("PAYMENT ERROR")
-        print(type(e).__name__)
-        print(str(e))
-        print("=" * 50)
+        print(
+            f"PAYMENT ERROR: {type(e).__name__}: {e}"
+        )
 
         await callback.message.answer(
             "Не удалось создать страницу оплаты.\n\n"
