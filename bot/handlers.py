@@ -31,27 +31,55 @@ from bot.keyboards import (
 from database import AsyncSessionLocal
 from models import Consultation
 
-
 router = Router()
-
-
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
-
 # Сколько минут "живёт" незавершённая (pending) запись,
 # после чего слот считается снова свободным для других
 PENDING_TTL_MINUTES = 30
-
 # Username бота без "@", нужен для deep link после оплаты
 # (например "unity_consult_bot"). Задать в .env
 BOT_USERNAME = os.getenv("BOT_USERNAME")
-
 
 def _pending_cutoff() -> datetime:
     """Момент времени, старее которого pending-записи не блокируют слот."""
     return datetime.utcnow() - timedelta(minutes=PENDING_TTL_MINUTES)
 
+def get_result_description(result: float) -> str:
+    if result <= 0:
+        return (
+            "Ваш результат находится в зоне, где внутренние ограничения "
+            "могут существенно влиять на возможность реализовывать свой потенциал."
+        )
+
+    elif result <= 100:
+        return (
+            "Ваш результат находится на начальном уровне и показывает, "
+            "что потенциал для движения вперёд уже есть, но значительная "
+            "часть ресурсов пока может использоваться не в полной мере."
+        )
+
+    elif result <= 200:
+        return (
+            "Ваш результат находится в среднем диапазоне. Это означает, "
+            "что у вас уже сформирована определённая база для движения вперёд, "
+            "но часть потенциала пока может оставаться нереализованной."
+        )
+
+    elif result <= 400:
+        return (
+            "Ваш результат находится в достаточно высоком диапазоне. "
+            "Это говорит о том, что у вас уже сформирована сильная база "
+            "для реализации своего потенциала."
+        )
+
+    else:
+        return (
+            "Ваш результат находится в высоком диапазоне. "
+            "У вас уже сформирован значительный потенциал "
+            "для дальнейшего движения и развития."
+        )
 
 # ============================================================
 # DATABASE / FUNNEL
@@ -604,86 +632,59 @@ async def process_h(
 # DESIRED RESULT
 # ============================================================
 
-@router.message(DiagnosticForm.desired_change)
+@router.message(DiagnosticForm.desired_result)
 async def process_desired_result(
     message: Message,
     state: FSMContext,
 ):
-    if not message.text:
+    data = await state.get_data()
+
+    desired_result = (message.text or "").strip()
+
+    if not desired_result:
         await message.answer(
-            "Пожалуйста, опишите желаемый результат текстом."
+            "Пожалуйста, напишите, какого результата вы хотите достичь."
         )
         return
 
-    await state.update_data(
-        desired_result=message.text
-    )
+    s = int(data["s"])
+    o = int(data["o"])
+    l = int(data["l"])
+    n = int(data["n"])
+    f = int(data["f"])
+    h = int(data["h"])
 
-    data = await state.get_data()
-
-    result = calculate_result(
-        s=data["s"],
-        o=data["o"],
-        l=data["l"],
-        n=data["n"],
-        f=data["f"],
-        h=data["h"],
-    )
+    result = calculate_result(s, o, l, n, f, h)
 
     await state.update_data(
-        diagnostic_result=result
+        desired_result=desired_result,
+        diagnostic_result=result,
     )
 
-    diagnostic_result = (
-        result.get("R")
-        if isinstance(result, dict)
-        else result
-    )
+    consultation_id = data.get("consultation_id")
 
-    await _update_consultation(
-        consultation_id=data.get("consultation_id"),
-        desired_result=message.text,
-        diagnostic_result=diagnostic_result,
-        funnel_stage="completed",
-    )
+    if consultation_id:
+        await _update_consultation(
+            consultation_id,
+            desired_result=desired_result,
+            diagnostic_result=result,
+            funnel_stage="completed",
+        )
 
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔎 Получить краткую расшифровку",
-                    callback_data="result:interpretation"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📅 Записаться на консультацию",
-                    callback_data="payment:start"
-                )
-            ]
-        ]
+    text = (
+        "🎯 <b>Ваш PROрезультат</b>\n\n"
+        f"<b>{result}</b>\n\n"
+        "Это ваш текущий показатель по Формуле PROрезультат.\n\n"
+        "👇 Хотите узнать, что стоит за вашим результатом?"
     )
 
     await message.answer(
-        "Благодарим за честность! Ваш профиль сформирован.\n\n"
-        "Ваши ответы обработаны по авторской методике и "
-        "отправлены наставникам — Татьяне и Андрею Прокопчук.\n\n"
-
-        "📊 Ваш результат диагностики:\n"
-        f"R = {result['R']}\n"
-        "Это ваш текущий показатель по Формуле PROрезультат. "
-        "Его краткую расшифровку вы можете увидеть, нажав кнопку ниже.\n"
-        "А на личной встрече мы можем разобрать, за счёт каких факторов "
-        "он сформирован и где находятся ваши точки роста.\n\n"
-
-        "Стоимость фиксации слота: 10 €.\n"
-        "(Это фильтр серьёзности: гарантирует, что время наставников "
-        "не займёт тот, кто потом не придёт).\n\n"
-
-        "Выберите действие:",
-        reply_markup=keyboard
+        text,
+        parse_mode="HTML",
+        reply_markup=result_keyboard(),
     )
 
+    await state.set_state(DiagnosticForm.result)
 
 # ============================================================
 # CONSULTATION DATE
@@ -903,76 +904,47 @@ async def change_consultation_datetime(
 # RESULT INTERPRETATION
 # ============================================================
 
-@router.callback_query(
-    F.data == "result:interpretation"
-)
+@router.callback_query(F.data == "result:interpretation")
 async def show_result_interpretation(
     callback: CallbackQuery,
     state: FSMContext,
 ):
     data = await state.get_data()
 
-    result_data = data.get(
-        "diagnostic_result"
-    )
+    result = data.get("diagnostic_result")
 
-    if isinstance(result_data, dict):
-        diagnostic_result = result_data.get("R")
-    else:
-        diagnostic_result = result_data
-
-    if diagnostic_result is None:
+    if result is None:
         await callback.answer(
             "Результат диагностики не найден.",
-            show_alert=True
+            show_alert=True,
         )
         return
 
-    result_interpretation = interpret_result(
-        diagnostic_result
+    result_description = get_result_description(float(result))
+
+    text = (
+        "🔎 <b>Краткая расшифровка</b>\n\n"
+        f"{result_description}\n\n"
+        "Ваш результат сформировался из сочетания шести составляющих, "
+        "которые показывают, что именно помогает вам двигаться вперёд — "
+        "и что может вас тормозить.\n\n"
+        "Формула показывает не только общий результат, "
+        "но и то, как эти составляющие взаимодействуют между собой.\n\n"
+        "Именно здесь находится самое интересное: "
+        "что именно сформировало ваш результат и где находится "
+        "ваша точка роста.\n\n"
+        "На консультации мы разберём вашу индивидуальную систему "
+        "и определим, что именно сейчас имеет наибольшее влияние "
+        "на ваш результат."
     )
 
-    balance_explanation = explain_positive_balance(
-        s=data["s"],
-        o=data["o"],
-        l=data["l"]
-    )
-
-    additional_text = ""
-
-    if balance_explanation:
-        additional_text = (
-            "\n\n"
-            + balance_explanation
-        )
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📅 Записаться на консультацию",
-                    callback_data="payment:start"
-                )
-            ]
-        ]
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=booking_result_keyboard(),
     )
 
     await callback.answer()
-
-    await callback.message.answer(
-        "🔎 Краткая расшифровка вашего результата\n\n"
-        f"📊 Ваш результат: R = {diagnostic_result}\n\n"
-        f"{result_interpretation}"
-        f"{additional_text}\n\n"
-        "💡 Это первичная картина по Формуле PROрезультат. "
-        "На личной 60-минутной встрече мы сможем разобрать "
-        "ваш результат глубже: увидеть, какие именно факторы "
-        "формируют его сейчас и где находится наиболее сильная "
-        "точка роста именно для вашей ситуации.",
-        reply_markup=keyboard
-    )
-
-
 # ============================================================
 # PAYMENT START
 # ============================================================
