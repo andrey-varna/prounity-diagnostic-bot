@@ -687,7 +687,8 @@ async def process_desired_result(
     f = int(data["f"])
     h = int(data["h"])
 
-    result = calculate_result(s, o, l, n, f, h)
+    calculation = calculate_result(s, o, l, n, f, h)
+    result = calculation["R"]
 
     await state.update_data(
         desired_result=desired_result,
