@@ -82,6 +82,42 @@ def get_result_description(result: float) -> str:
         )
 
 # ============================================================
+# RESULT KEYBOARDS
+# ============================================================
+
+def result_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔎 Краткая расшифровка",
+                    callback_data="result:interpretation",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📅 Записаться на консультацию",
+                    callback_data="payment:start",
+                )
+            ],
+        ]
+    )
+
+
+def booking_result_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📅 Записаться на консультацию",
+                    callback_data="payment:start",
+                )
+            ]
+        ]
+    )
+
+
+# ============================================================
 # DATABASE / FUNNEL
 # ============================================================
 
@@ -920,10 +956,25 @@ async def show_result_interpretation(
         )
         return
 
-    result_description = get_result_description(float(result))
+    try:
+        numeric_result = float(result)
+    except (TypeError, ValueError):
+        await callback.answer(
+            "Не удалось определить результат диагностики.",
+            show_alert=True,
+        )
+        return
+
+    if numeric_result.is_integer():
+        result_display = str(int(numeric_result))
+    else:
+        result_display = str(numeric_result)
+
+    result_description = get_result_description(numeric_result)
 
     text = (
-        "🔎 <b>Краткая расшифровка</b>\n\n"
+        "🔎 <b>Краткая расшифровка вашего результата</b>\n\n"
+        f"📊 Ваш результат: R = {result_display}\n\n"
         f"{result_description}\n\n"
         "Ваш результат сформировался из сочетания шести составляющих, "
         "которые показывают, что именно помогает вам двигаться вперёд — "
@@ -933,8 +984,8 @@ async def show_result_interpretation(
         "Именно здесь находится самое интересное: "
         "что именно сформировало ваш результат и где находится "
         "ваша точка роста.\n\n"
-        "На консультации мы разберём вашу индивидуальную систему "
-        "и определим, что именно сейчас имеет наибольшее влияние "
+        "На личной 60-минутной встрече мы разберём вашу индивидуальную "
+        "систему и определим, что именно сейчас имеет наибольшее влияние "
         "на ваш результат."
     )
 
@@ -945,6 +996,8 @@ async def show_result_interpretation(
     )
 
     await callback.answer()
+
+
 # ============================================================
 # PAYMENT START
 # ============================================================
