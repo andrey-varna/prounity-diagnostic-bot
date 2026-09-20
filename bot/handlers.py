@@ -1079,7 +1079,8 @@ async def process_payment_start(
 
         await callback.message.answer(
             "👤 <b>Как вас зовут?</b>\n\n"
-            "Пожалуйста, укажите ваше имя и фамилию."
+            "Пожалуйста, укажите ваше имя и фамилию.",
+            parse_mode = "HTML",
         )
 
         return
