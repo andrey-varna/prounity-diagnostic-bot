@@ -182,6 +182,7 @@ async def stripe_webhook(request: Request):
             # Сохраняем данные до закрытия сессии БД
             consultation_id = consultation.id
             client_telegram_id = consultation.telegram_id
+            client_name = consultation.name
             goal = consultation.goal
             s = consultation.s
             o = consultation.o
@@ -230,18 +231,13 @@ async def stripe_webhook(request: Request):
         # ====================================================
         if ADMIN_TELEGRAM_ID:
             try:
-                client_name = (
-                    consultation.name
-                    if consultation
-                    else "Не указано"
-                )
-
                 admin_message = (
                     "💰 НОВАЯ ПОДТВЕРЖДЁННАЯ "
                     "КОНСУЛЬТАЦИЯ\n"
                     "════════════════════\n\n"
+
                     "👤 КЛИЕНТ\n"
-                    f"Имя: {client_name}\n"
+                    f"Имя: {client_name or 'Не указано'}\n"
                     f"Telegram ID: {client_telegram_id}\n\n"
 
                     "🎯 ЦЕЛЬ\n"

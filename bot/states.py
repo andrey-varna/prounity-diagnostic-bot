@@ -11,7 +11,7 @@ class DiagnosticForm(StatesGroup):
     h = State()
 
     problem = State()
-    desired_change = State()
+    desired_result = State()
     name = State()
     consultation_date = State()
     consultation_time = State()
