@@ -723,6 +723,65 @@ async def process_desired_result(
     await state.set_state(DiagnosticForm.result)
 
 # ============================================================
+# CLIENT NAME
+# ============================================================
+
+@router.message(DiagnosticForm.name)
+async def process_client_name(
+    message: Message,
+    state: FSMContext,
+):
+    name = (message.text or "").strip()
+
+    if not name:
+        await message.answer(
+            "Пожалуйста, укажите ваше имя и фамилию."
+        )
+        return
+
+    if len(name) < 2:
+        await message.answer(
+            "Пожалуйста, укажите имя и фамилию."
+        )
+        return
+
+    data = await state.get_data()
+
+    consultation_id = data.get(
+        "consultation_id"
+    )
+
+    # Сохраняем имя в FSM
+    await state.update_data(
+        name=name
+    )
+
+    # И сразу записываем его в уже существующую
+    # запись диагностики
+    if consultation_id:
+        await _update_consultation(
+            consultation_id,
+            name=name,
+            funnel_stage="booking",
+        )
+
+    # Переходим к выбору даты
+    available_dates = get_available_dates()
+
+    await state.set_state(
+        DiagnosticForm.consultation_date
+    )
+
+    await message.answer(
+        "Спасибо, "
+        f"<b>{name}</b>!\n\n"
+        "Теперь выберите удобный день консультации:",
+        parse_mode="HTML",
+        reply_markup=dates_keyboard(
+            available_dates
+        )
+    )
+# ============================================================
 # CONSULTATION DATE
 # ============================================================
 
@@ -1009,11 +1068,29 @@ async def process_payment_start(
     callback: CallbackQuery,
     state: FSMContext,
 ):
-    await callback.answer(
-        "Проверяем доступность времени..."
-    )
+    await callback.answer()
 
     data = await state.get_data()
+
+    # --------------------------------------------------------
+    # ЕСЛИ ИМЯ ЕЩЁ НЕ УКАЗАНО — СПРАШИВАЕМ ЕГО
+    # --------------------------------------------------------
+
+    if not data.get("name"):
+        await state.set_state(
+            DiagnosticForm.name
+        )
+
+        await callback.message.answer(
+            "👤 <b>Как вас зовут?</b>\n\n"
+            "Пожалуйста, укажите ваше имя и фамилию."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # ИМЯ УЖЕ ЕСТЬ — ПРОДОЛЖАЕМ БРОНИРОВАНИЕ
+    # --------------------------------------------------------
 
     if not data.get("consultation_date"):
         available_dates = get_available_dates()
@@ -1047,25 +1124,19 @@ async def process_payment_start(
 
     try:
         data = await state.get_data()
-
         telegram_id = callback.from_user.id
-
         consultation_id = data.get(
             "consultation_id"
         )
-
         consultation_date = data.get(
             "consultation_date"
         )
-
         consultation_time = data.get(
             "consultation_time"
         )
-
         goal = data.get(
             "goal"
         )
-
         s = data.get("s")
         o = data.get("o")
         l = data.get("l")
@@ -1101,7 +1172,6 @@ async def process_payment_start(
             return
 
         cutoff = _pending_cutoff()
-
         async with AsyncSessionLocal() as db:
 
             # ------------------------------------------------
@@ -1164,6 +1234,7 @@ async def process_payment_start(
                 if not consultation:
                     consultation = Consultation(
                         telegram_id=telegram_id,
+                        name=data.get("name"),
                         goal=goal,
                         s=s,
                         o=o,
@@ -1185,6 +1256,7 @@ async def process_payment_start(
 
                 else:
                     consultation.goal = goal
+                    consultation.name = data.get("name")
                     consultation.s = s
                     consultation.o = o
                     consultation.l = l

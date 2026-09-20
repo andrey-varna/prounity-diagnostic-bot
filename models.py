@@ -17,10 +17,7 @@ from database import Base
 class Consultation(Base):
     __tablename__ = "consultations"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     telegram_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -28,7 +25,11 @@ class Consultation(Base):
         index=True
     )
 
-    # Главная цель клиента перед началом опроса
+    name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
     goal: Mapped[str | None] = mapped_column(
         Text,
         nullable=True

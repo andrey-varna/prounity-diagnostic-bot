@@ -4,3 +4,6 @@ venv/
 __pycache__/
 .idea/
 *.pyc
+models_1.py
+handlers_old.py
+handlers_1.py

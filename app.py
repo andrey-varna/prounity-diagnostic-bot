@@ -1,6 +1,5 @@
 import os
 from contextlib import asynccontextmanager
-import models
 import stripe
 from aiogram.types import Update
 from dotenv import load_dotenv
@@ -231,14 +230,23 @@ async def stripe_webhook(request: Request):
         # ====================================================
         if ADMIN_TELEGRAM_ID:
             try:
+                client_name = (
+                    consultation.name
+                    if consultation
+                    else "Не указано"
+                )
+
                 admin_message = (
                     "💰 НОВАЯ ПОДТВЕРЖДЁННАЯ "
                     "КОНСУЛЬТАЦИЯ\n"
                     "════════════════════\n\n"
                     "👤 КЛИЕНТ\n"
+                    f"Имя: {client_name}\n"
                     f"Telegram ID: {client_telegram_id}\n\n"
+
                     "🎯 ЦЕЛЬ\n"
                     f"{goal or 'Не указана'}\n\n"
+
                     "📊 ДИАГНОСТИКА\n\n"
                     f"S — Сила: {s}\n"
                     f"O — Поддержка: {o}\n"
@@ -246,25 +254,33 @@ async def stripe_webhook(request: Request):
                     f"N — Ограничивающие убеждения: {n}\n"
                     f"F — Страхи: {f}\n"
                     f"H — Привычки: {h}\n\n"
+
                     "🔢 РЕЗУЛЬТАТ ПО ФОРМУЛЕ\n"
                     f"{diagnostic_result}\n\n"
+
                     "✨ ЖЕЛАЕМЫЙ РЕЗУЛЬТАТ\n"
                     f"{desired_result or 'Не указан'}\n\n"
+
                     "📅 КОНСУЛЬТАЦИЯ\n"
                     f"Дата: {consultation_date}\n"
                     f"Время: {consultation_time}\n\n"
+
                     "💳 ОПЛАТА\n"
                     "Статус: ✅ ПОЛУЧЕНА\n\n"
+
                     "────────────────────\n"
                     f"Consultation ID: {consultation_id}\n"
                     f"Stripe Session: {stripe_session_id}"
                 )
+
                 await bot.send_message(
                     chat_id=int(ADMIN_TELEGRAM_ID),
                     text=admin_message
                 )
+
             except Exception as e:
                 print(
                     f"ERROR sending message to admin: {e}"
                 )
-    return {"status": "ok"}
+
+        return {"status": "ok"}
