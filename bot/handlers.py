@@ -717,8 +717,6 @@ async def process_desired_result(
         reply_markup=result_keyboard(),
     )
 
-    await state.set_state(DiagnosticForm.result)
-
 # ============================================================
 # CLIENT NAME
 # ============================================================
