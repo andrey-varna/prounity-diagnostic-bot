@@ -622,14 +622,15 @@ async def process_h(
     callback: CallbackQuery,
     state: FSMContext,
 ):
+    # Сразу подтверждаем callback,
+    # чтобы Telegram не успел сделать его недействительным
+    await callback.answer()
+
     value = int(
         callback.data.split(":")[1]
     )
 
     if not 1 <= value <= 10:
-        await callback.answer(
-            "Выберите значение от 1 до 10"
-        )
         return
 
     await state.update_data(
@@ -644,26 +645,22 @@ async def process_h(
         funnel_stage="formula",
     )
 
-    await callback.answer()
-
     await callback.message.edit_text(
         f"Вы выбрали: {value}"
     )
 
     await state.set_state(
-        DiagnosticForm.desired_change
+        DiagnosticForm.desired_result
     )
 
     await callback.message.answer(
         "Принято! Остался финальный штрих\n\n"
         "Шаг 3 из 3. Желаемый результат\n\n"
         "Представьте, что прошла наша совместная работа и вы пересобрали свою систему.\n\n"
-        "Как выглядит ваш идеальный результат через 3–6 месяцев?\n "
+        "Как выглядит ваш идеальный результат через 3–6 месяцев?\n"
         "Что изменилось в бизнесе, вашем состоянии и отношениях?\n"
         "(Опишите желаемую картину текстом)\n\n"
     )
-
-
 # ============================================================
 # DESIRED RESULT
 # ============================================================
